@@ -1,3 +1,7 @@
 .DS_Store
 __pycache__/
 *.pyc
+
+# chiavi API: non devono mai finire nel repository
+.env
+*.key

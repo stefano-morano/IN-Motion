@@ -1,50 +1,90 @@
-# IN-Motion — Prototipo 1
+# IN-Motion
 
-Pipeline: segnale emotivo (valence/arousal, per ora simulato) → agente Claude → TouchDesigner via OSC,
-più un primo prototipo funzionante del sistema di particelle "volto ↔ forma astratta" dentro TD stesso.
+Un'esperienza di meditazione guidata. L'utente racconta a voce cosa lo affligge,
+Claude ne ricava delle frasi su cui meditare, e tutto — volto, parole, mandala
+finale — viene disegnato dalle stesse 13.664 particelle.
 
-## Componenti Python (in questa cartella)
+**Non si tocca mai la tastiera**: l'esperienza si comanda chiudendo e riaprendo
+gli occhi.
 
-- `visual_bridge.py` — invia `/emotion/valence` e `/emotion/arousal` a TD via OSC (dati simulati con onde sinusoidali).
-  Se costruito con un `ClaudeVisualAgent`, invia in aggiunta `/scene/*` (palette, intensity, motion_speed, caption).
-- `claude_agent.py` — `ClaudeVisualAgent`: chiede a Claude i parametri di scena in modo non bloccante (async, throttled).
+## Come si esegue
 
-## Setup
+1. Apri `visual_TD.toe` in TouchDesigner e **lascialo in primo piano** — quando
+   TD non e' la finestra attiva il suo orologio rallenta e le transizioni
+   restano immobili. Assicurati che ci sia **una sola istanza di TD aperta**:
+   una seconda si prende le porte OSC e la prima non riceve piu' nulla.
+2. Lancia:
+
+   ```bash
+   python3 main.py "racconto di ripiego"
+   ```
+
+   Il testo fra virgolette serve solo se il microfono non e' disponibile o non
+   sente nulla.
+3. Passa a TouchDesigner entro il conto alla rovescia e segui le scritte.
+
+Si ferma con `Ctrl+C`, o premendo `q` sulla finestra della webcam.
+
+## Il filo dell'esperienza
+
+| Fase | Cosa vedi | Come si passa oltre |
+|---|---|---|
+| Saluto e invito | benvenuto, poi l'invito a raccontare | **chiudi gli occhi** |
+| Ascolto | il tuo volto | parli; **riapri gli occhi** |
+| Attesa | "preparo la tua meditazione" | quando Claude ha risposto |
+| Danza | frasi e volto che si alternano | a tempo |
+| Meditazione | il tuo volto | **chiudi gli occhi**, mediti, **riapri** |
+| Mandala | il mandala della tua sessione | dopo 40 secondi |
+
+Gli occhi vanno tenuti chiusi (o aperti) **2 secondi** perche' il cambiamento
+conti: sotto quella soglia e' un battito di ciglia, non una scelta.
+
+## I file
+
+| File | Cosa fa |
+|---|---|
+| `main.py` | avvia, tiene il ciclo, ferma tutto |
+| `volto.py` | webcam e punti del viso → TD |
+| `occhi.py` | da quanto sono aperti gli occhi a "aperti / chiusi" |
+| `ascolto.py` | microfono e trascrizione (Whisper, in locale) |
+| `testi.py` | frasi e carattere del mandala, da Claude |
+| `scena.py` | i comandi verso TD |
+| `esperienza.py` | **decide cosa succede e quando** |
+| `taratura.py` | attrezzo: misura la soglia degli occhi sul tuo viso |
+| `td_*.py` | copie di riferimento degli script che girano dentro TD |
+
+`esperienza.py` e' il file da aprire per cambiare le scritte o i tempi: sono
+tutte costanti in cima.
+
+## Come e' fatto
+
+**Python decide, TouchDesigner disegna.** Python manda tre soli messaggi OSC
+sulla porta 8001 (`/prepara`, `/mandala`, `/scena`); i punti del viso viaggiano
+a parte sulla 8000. TD non sa nulla dell'esperienza: sa solo come passare da
+una forma all'altra.
+
+**Niente blocca il ciclo.** `esperienza.py` non aspetta mai: ad ogni fotogramma
+le si chiede "e adesso?". Le chiamate lente (Claude, Whisper) girano in thread
+separati. E' la condizione perche' il sistema possa accorgersi degli occhi che
+si chiudono mentre sta facendo altro.
+
+**Funziona anche quando qualcosa si rompe.** Senza chiave API, senza rete,
+senza microfono, l'esperienza va avanti con frasi di riserva scritte a mano.
+
+**La privacy e' una scelta di progetto.** Il volto diventa coordinate e l'audio
+viene trascritto in locale: a TouchDesigner non arriva mai il video, e l'audio
+non lascia il computer. Esce solo il testo, e solo verso Claude.
+
+## Prima volta
 
 ```bash
-pip install anthropic python-osc
-export ANTHROPIC_API_KEY="sk-ant-..."   # opzionale, solo per le decisioni di regia AI
-python visual_bridge.py
+pip install -r requirements.txt
+export ANTHROPIC_API_KEY="sk-ant-..."   # senza, si usano le frasi di riserva
+python3 taratura.py                      # misura la soglia degli occhi
 ```
 
-## Prototipo TouchDesigner — `/prototype1`
+La chiave va nell'ambiente, **mai in un file del progetto**: finirebbe su git.
+Chi sviluppa senza chiave non ha nulla da configurare — le frasi di riserva
+tengono in piedi tutto il resto.
 
-Componente isolato dentro `NewProject.toe`, non tocca `/local`, `/mcp_webserver_base`, `/noise1`, `/oscin1` esistenti.
-
-**Catena di generazione**
-- `webcam` (Video Device In TOP) → `cam_avg` → `cam_avg_chop`: misura la luminosità media della webcam.
-- `fallback_noise`: pattern procedurale animato usato quando la webcam non è disponibile.
-- `face_source` (Switch TOP): sceglie automaticamente webcam reale o fallback in base alla luminosità rilevata (soglia 0.015) — nessun intervento manuale necessario.
-- `posA_face` (GLSL): converte l'immagine sorgente in una texture di posizione 96×96 (griglia di punti, profondità = luminanza).
-- `posB_abstract` (GLSL): genera proceduralmente una forma astratta (toroide deformato da rumore), stessa risoluzione.
-- `control_chop` → `control_tex`: canali `morph` (0=volto, 1=astratto) e `turb` (intensità turbolenza), letti dal morph engine come texture invece che come uniform diretti (vedi nota tecnica sotto).
-- `morph_engine` (GLSL): cross-fade tra le due texture di posizione + turbolenza (curl noise) scalata da `turb`.
-- `particles` (Geometry COMP, GPU instancing su `morph_engine`, 9216 particelle) → `particle_mat` (colore legato alla valence) → `render_cam` / `render_light` → `render_out` (TOP finale).
-
-**Orchestrazione**
-- `phase_wave` (Wave CHOP, triangolare, periodo 14s, 0→1→0): pilota `control_chop.morph` — il ciclo automatico volto↔astratto.
-- `control_chop.turb` è collegato a `/oscin1['emotion/arousal']`.
-- `particle_mat` (colore) è collegato a `/oscin1['emotion/valence']` (blu freddo → oro caldo).
-
-## Come eseguire il prototipo
-
-1. Apri `NewProject.toe` in TouchDesigner e **porta la finestra in primo piano** — TD riduce il frame rate quando è in background/non a fuoco, e senza cook attivo il ciclo non anima (lezione imparata durante il debug: i parametri si aggiornano ma non si vedono finché TD non torna a cookare a piena velocità).
-2. Se non l'hai già fatto, concedi il permesso camera a TouchDesigner in Preferenze di Sistema → Privacy → Fotocamera (in questa sessione il permesso risultava già concesso: la webcam reale viene già usata al posto del fallback).
-3. Lancia `python visual_bridge.py` da questa cartella per avere lo stream di valence/arousal simulato su `/oscin1`.
-4. Guarda `/prototype1/render_out` nel viewer di TD: la nuvola di particelle cicla automaticamente tra il point-cloud del tuo volto (dalla webcam) e il toroide astratto, con turbolenza legata all'arousal e colore legato alla valence.
-
-## Note tecniche (limitazioni note del Prototipo 1)
-
-- **Volto**: per ora è un rilievo di punti dalla luminanza dell'immagine webcam (griglia 96×96), non un vero landmark facciale ML — coerente con la scelta di partenza discussa ("anche semplice, non ancora ML in produzione"). Il passo successivo naturale è sostituire `posA_face` con landmark reali (es. Mediapipe) o point cloud LiDAR.
-- **Uniform custom nel GLSL TOP**: la pagina "Const" del GLSL TOP si è rivelata inaffidabile in questo ambiente (i valori non arrivavano allo shader in modo consistente). I parametri dinamici (`morph`, `turb`) vengono quindi passati come texture 2×1 via CHOP→TOP invece che come uniform diretti — più verboso ma verificato funzionare in modo affidabile.
-- **Regia Claude**: il collegamento tra le decisioni di `ClaudeVisualAgent` (palette/preset) e i nodi TD non è ancora cablato in `/prototype1` — per ora l'orchestrazione è puramente TD-nativa (Wave CHOP + OSC diretto), come da roadmap concordata (step 7 del piano).
+Al primo avvio Whisper scarica il suo modello (~460 MB), una volta sola.

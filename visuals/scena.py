@@ -1,9 +1,11 @@
 """
 La scena: manda a TouchDesigner i comandi su cosa mostrare.
 
-Due soli messaggi, sulla porta 8001:
-  /prepara  "frase" "frase" ...   -> TD disegna le scritte e ne ricava le posizioni
-  /scena    tipo testo durata     -> TD parte con la transizione
+Tre messaggi, sulla porta 8001:
+  /prepara  "frase" "frase" ...        -> TD disegna le scritte e ne ricava le posizioni
+  /mandala  petali anelli tonalita seed -> TD genera le posizioni del mandala
+  /scena    tipo testo durata          -> TD parte con la transizione
+                                           (tipo = volto / testo / mandala)
 
 Nessuna funzione qui aspetta: le attese sono compito della macchina a stati,
 perche' un'attesa dentro questo modulo bloccherebbe anche la webcam.
@@ -34,6 +36,14 @@ class Scena:
         self.client.send_message("/prepara", list(frasi))
         print(f"scena: preparo {len(frasi)} scritte")
 
+    def prepara_mandala(self, petali, anelli, tonalita, seed):
+        """Come prepara(), ma per il mandala: niente da disegnare, solo
+        numeri — TD lo genera per calcolo puro."""
+        self.client.send_message(
+            "/mandala", [int(petali), int(anelli), float(tonalita), int(seed)]
+        )
+        print(f"scena: preparo il mandala ({petali} petali, {anelli} anelli)")
+
     def volto(self, transizione=4.0):
         self.client.send_message("/scena", ["volto", "", float(transizione)])
 
@@ -43,6 +53,8 @@ class Scena:
     def mostra(self, tipo, contenuto="", transizione=4.0):
         if tipo == "volto":
             self.volto(transizione)
+        elif tipo == "mandala":
+            self.client.send_message("/scena", ["mandala", "", float(transizione)])
         else:
             self.testo(contenuto, transizione)
         print(f"  -> {contenuto or tipo}")

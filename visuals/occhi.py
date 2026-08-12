@@ -52,8 +52,14 @@ def apertura(punti):
 # mezzo, quindi con largo margine da entrambi i lati.
 # Se cambiano webcam, luce o distanza, rilanciare taratura.py.
 SOGLIA = 0.18
-CONFERMA_CHIUSURA = 2.0   # un battito di ciglia dura ~0.3s: non deve contare
-CONFERMA_APERTURA = 0.4   # riaprire e' un gesto piu' netto, basta meno
+# Un cambiamento conta solo se dura. In chiusura serve a ignorare i battiti di
+# ciglia (~0.3s); in apertura a ignorare chi sbircia un istante senza voler
+# davvero interrompere — importante ora per non troncare l'ascolto, e ancora
+# di piu' nella fase 2, dove un occhio aperto per sbaglio non deve chiudere
+# la meditazione. Sono due costanti separate apposta: un domani potrebbero
+# servire diverse.
+CONFERMA_CHIUSURA = 2.0
+CONFERMA_APERTURA = 2.0
 
 
 class Rilevatore:

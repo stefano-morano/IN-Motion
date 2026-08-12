@@ -16,11 +16,17 @@ Prima serve:
 import sys
 import time
 
+# ATTENZIONE ALL'ORDINE: volto.py carica OpenCV, ascolto.py carica Whisper (che
+# a sua volta porta con se' una copia diversa delle librerie video). Se Whisper
+# arriva per primo, e' la SUA copia a registrarsi nel sistema, e l'elenco delle
+# webcam puo' risultare sfalsato. Caricando prima OpenCV la telecamera resta
+# quella giusta.
+from volto import Volto
+from ascolto import Ascolto
 from esperienza import Esperienza
 from scena import Scena
-from volto import Volto
 
-SECONDI_PER_PASSARE_A_TD = 5
+SECONDI_PER_PASSARE_A_TD = 3
 
 RACCONTO_PREDEFINITO = "oggi mi sento agitato e non riesco a fermare i pensieri"
 
@@ -38,7 +44,17 @@ def main():
 
     scena = Scena()
     volto = Volto()
-    esperienza = Esperienza(scena, racconto)
+
+    # Il modello di trascrizione si carica adesso, non quando serve: farlo
+    # dopo aggiungerebbe secondi di attesa nel momento peggiore.
+    # La prima volta in assoluto viene anche scaricato (~150 MB).
+    try:
+        ascoltatore = Ascolto()
+    except Exception as errore:
+        print(f"ascolto non disponibile ({errore}) — useremo il racconto scritto")
+        ascoltatore = None
+
+    esperienza = Esperienza(scena, racconto, ascoltatore)
 
     conto_alla_rovescia(SECONDI_PER_PASSARE_A_TD)
 

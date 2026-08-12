@@ -7,16 +7,34 @@ differenza che permette al sistema di reagire agli occhi: se dormisse, non
 potrebbe accorgersi di nulla.
 
 Il filo:
-    saluto   -> benvenuto a schermo
-    invito   -> "chiudi gli occhi e parlami", finche' non li chiude
-    ascolto  -> occhi chiusi, l'utente parla; a schermo il suo volto
-    attesa   -> ha riaperto gli occhi: si genera, a schermo "preparo..."
-    danza    -> volto, frase, volto, frase, concetto, chiusura
+    saluto              -> benvenuto a schermo, a blocchi
+    invito              -> "chiudi gli occhi e parlami", a blocchi, finche' non li chiude
+    ascolto             -> occhi chiusi, l'utente parla; a schermo il suo volto
+    attesa              -> ha riaperto gli occhi: si genera, a schermo i blocchi d'attesa
+    danza               -> volto, frase, volto, frase, concetto, chiusura
+    invito_meditazione  -> l'ultima scritta della danza resta, finche' non chiude gli occhi
+    meditazione         -> occhi chiusi, si medita; si misura solo QUANTO dura
+    preparazione_mandala -> ha riaperto gli occhi: si genera il mandala
+    mandala             -> il mandala della sessione, particella per particella
+
+SALUTO, INVITO, ATTESA, CHIUSURA e PREPARAZIONE_MANDALA sono tutte SEQUENZE di
+schermate, mostrate una dopo l'altra: aggiungerne o toglierne non richiede
+altro. ATTESA e PREPARAZIONE_MANDALA sono le sole che si comportano
+diversamente: la loro durata totale non e' nota in anticipo (dipende da
+quanto ci mette Claude), quindi i loro blocchi scorrono IN LOOP finche' il
+materiale non e' pronto, invece di finire e basta.
+
+Il mandala: Claude ne sceglie il carattere di base (petali, anelli, colore)
+dal racconto, nella stessa chiamata che genera le frasi — nessuna chiamata in
+piu'. La sua complessita' finale invece cresce con quanto l'utente e' rimasto
+in meditazione: piu' tempo, piu' dettaglio. E' un calcolo locale, non serve
+richiedere altro al modello: il tempo passato lo sappiamo gia'.
 
 La chiamata a Claude gira in un thread separato: mentre si aspetta la
 risposta la webcam continua e le particelle si muovono.
 """
 
+import random
 import threading
 
 import occhi as modulo_occhi
@@ -24,28 +42,56 @@ import scena as modulo_scena
 import testi
 
 # ---------- scritte sempre uguali ----------
-SALUTO = "BENVENUTO"
-INVITO = "CHIUDI GLI OCCHI E PARLAMI"
-ATTESA = "PREPARO LA TUA MEDITAZIONE"
-CHIUSURA = ["BUONA MEDITAZIONE", "CHIUDI GLI OCCHI"]
+SALUTO = ["BENVENUTO E GRAZIE PER ESSERE QUI"]
+INVITO = ["QUANDO TI SENTI PRONTO", "CHIUDI GLI OCCHI E RACCONTAMI CIO CHE VUOI"]
+ATTESA = ["PREPARO LA TUA MEDITAZIONE", "CONCENTRATI SUL TUO RESPIRO"]
+CHIUSURA = ["È IL MOMENTO DI MEDITARE", "CHIUDI GLI OCCHI QUANDO TI SENTI PRONTO"]
+ATTESA_MANDALA = ["STO DISEGNANDO IL TUO MANDALA"]
 
 # ---------- tempi (secondi) ----------
-DURATA_SALUTO = 4.0
-MIN_ASCOLTO = 3.0          # sotto questa durata l'ascolto non puo' finire
-MAX_ATTESA_GESTO = 90.0    # se il gesto non arriva mai, si prosegue lo stesso
-ATTESA_MINIMA = 3.0        # l'attesa non lampeggia mai: dura almeno cosi'
-TRANSIZIONE = 4.0
-PERMANENZA_VOLTO = 3.0
-PERMANENZA_FRASE = 5.0
-PERMANENZA_CONCETTO = 6.0
-PERMANENZA_CHIUSURA = 4.0
+# REGOLA: nessuna scritta resta a schermo meno di LEGGIBILE, e questo tempo si
+# conta DA QUANDO E' FORMATA, non da quando parte la transizione — durante la
+# transizione le particelle si stanno ancora disponendo e non c'e' niente da
+# leggere. Quindi ogni schermata dura: transizione + LEGGIBILE.
+LEGGIBILE = 6.0
+
+TRANSIZIONE = 4.0           # quanto dura il passaggio da una forma all'altra
+TRANSIZIONE_BREVE = 2.5     # per i cambi rapidi (blocchi d'attesa)
+
+DURATA_SALUTO = TRANSIZIONE + LEGGIBILE
+DURATA_INVITO = TRANSIZIONE + LEGGIBILE   # tranne l'ultimo blocco: quello
+                                          # resta finche' non chiude gli occhi
+DURATA_ATTESA = TRANSIZIONE_BREVE + LEGGIBILE
+
+MIN_ASCOLTO = 3.0           # sotto questa durata l'ascolto non puo' finire
+MAX_ATTESA_GESTO = 90.0     # se il gesto non arriva mai, si prosegue lo stesso
+
+PERMANENZA_VOLTO = 3.0      # il volto non e' da leggere: puo' durare meno
+PERMANENZA_FRASE = LEGGIBILE
+PERMANENZA_CONCETTO = LEGGIBILE + 2.0   # il concetto finale merita piu' respiro
+PERMANENZA_CHIUSURA = LEGGIBILE
+
+# ---------- fase 2: meditazione ----------
+MIN_MEDITAZIONE = 5.0       # una riapertura fulminea non puo' bastare a finirla
+MAX_MEDITAZIONE = 600.0     # rete di sicurezza per una presentazione (10 minuti)
+
+# ---------- fase 3: il mandala ----------
+DURATA_ATTESA_MANDALA = DURATA_ATTESA   # per ogni blocco, poi si ripete
+TRANSIZIONE_MANDALA = 6.0    # il mandala si compone piu' lentamente del resto:
+                             # e' il regalo finale, non deve sbrigarsi
+SECONDI_PER_LIVELLO = 40.0   # ogni tot secondi di meditazione, un livello di dettaglio in piu'
+BONUS_MASSIMO = 3            # tetto ai livelli: oltre, il disegno si affolla
+                             # e si legge peggio invece che meglio
+PERMANENZA_MANDALA = 40.0    # quanto resta a schermo alla fine della sessione
 
 
 class Esperienza:
-    def __init__(self, scena: modulo_scena.Scena, racconto: str):
+    def __init__(self, scena: modulo_scena.Scena, racconto: str, ascolto=None):
         self.scena = scena
-        self.racconto = racconto
+        self.racconto = racconto      # ripiego se il microfono non c'e' o non sente
+        self.ascolto = ascolto
         self.occhi = modulo_occhi.Rilevatore()
+        self._generazione_avviata = False
 
         self.stato = None
         self.t_stato = 0.0
@@ -55,15 +101,19 @@ class Esperienza:
         self._materiale = None
         self._t_pronto = None
 
+        self._indice_blocco = 0
+        self._t_blocco = 0.0
+        self._durata_meditazione = 0.0
+
         self.copione = []
         self.indice = 0
 
     # ---------- avvio ----------
 
     def avvia(self, ora):
-        self.scena.prepara([SALUTO, INVITO, ATTESA] + CHIUSURA)
+        self.scena.prepara(SALUTO + INVITO + ATTESA + ATTESA_MANDALA + CHIUSURA)
         self._vai("saluto", ora)
-        self.scena.mostra("testo", SALUTO, transizione=3.0)
+        self._mostra_blocco(SALUTO, 0, ora)
 
     # ---------- il ciclo lo chiama ad ogni fotogramma ----------
 
@@ -79,32 +129,64 @@ class Esperienza:
         trascorso = ora - self.t_stato
 
         if self.stato == "saluto":
-            if trascorso >= DURATA_SALUTO:
-                self._vai("invito", ora)
-                self.scena.mostra("testo", INVITO, transizione=3.0)
+            if ora - self._t_blocco >= DURATA_SALUTO:
+                if self._indice_blocco + 1 < len(SALUTO):
+                    self._mostra_blocco(SALUTO, self._indice_blocco + 1, ora)
+                else:
+                    self._vai("invito", ora)
+                    self._mostra_blocco(INVITO, 0, ora)
 
         elif self.stato == "invito":
+            ultimo_blocco = self._indice_blocco >= len(INVITO) - 1
+            if not ultimo_blocco and (ora - self._t_blocco) >= DURATA_INVITO:
+                self._mostra_blocco(INVITO, self._indice_blocco + 1, ora)
+
             # si passa oltre quando chiude gli occhi (o dopo molto tempo,
             # per non lasciare il sistema bloccato durante una presentazione)
             if stato_occhi == "chiusi" or trascorso >= MAX_ATTESA_GESTO:
                 self._vai("ascolto", ora)
                 self.scena.mostra("volto", transizione=TRANSIZIONE)
-                print("ascolto: sto ascoltando (il microfono arrivera' dopo)")
+                if self.ascolto:
+                    self.ascolto.inizia()
 
         elif self.stato == "ascolto":
             pronto_a_finire = trascorso >= MIN_ASCOLTO
             if (stato_occhi == "aperti" and pronto_a_finire) or trascorso >= MAX_ATTESA_GESTO:
+                if self.ascolto:
+                    self.ascolto.ferma()
                 self._vai("attesa", ora)
-                self.scena.mostra("testo", ATTESA, transizione=2.5)
-                self._genera_in_background()
+                self._mostra_blocco(ATTESA, 0, ora, TRANSIZIONE_BREVE)
+                if not self.ascolto:
+                    self._avvia_generazione(self.racconto)
 
         elif self.stato == "attesa":
+            # I blocchi girano in loop finche' il materiale non e' pronto.
+            # Quando arriva NON se ne apre un altro: si lascia finire quello
+            # in corso. Senza questa condizione una scritta poteva comparire
+            # e sparire nello stesso istante, appena Claude rispondeva.
+            attesa_finita = (ora - self._t_blocco) >= DURATA_ATTESA
+            if self._materiale is None and len(ATTESA) > 1 and attesa_finita:
+                prossimo = (self._indice_blocco + 1) % len(ATTESA)
+                self._mostra_blocco(ATTESA, prossimo, ora, TRANSIZIONE_BREVE)
+                attesa_finita = False
+
+            # prima aspetto la trascrizione, poi parte la generazione
+            if self.ascolto and not self._generazione_avviata:
+                trascritto = self.ascolto.risultato()
+                if trascritto is not None:
+                    if trascritto:
+                        print(f'ha detto: "{trascritto}"')
+                    else:
+                        print("ascolto: non ho sentito nulla, uso il racconto di ripiego")
+                    self._avvia_generazione(trascritto or self.racconto)
+
             if self._materiale is not None and self._t_pronto is None:
                 self._prepara_scritte_generate()
                 self._t_pronto = ora
             pronto = self._t_pronto is not None
             td_pronto = pronto and (ora - self._t_pronto) >= modulo_scena.TEMPO_DI_PREPARAZIONE
-            if pronto and td_pronto and trascorso >= ATTESA_MINIMA:
+            # si esce solo quando la scritta in corso e' stata letta per intero
+            if pronto and td_pronto and attesa_finita:
                 self._costruisci_copione()
                 self._vai("danza", ora)
                 self._mostra_scena_corrente()
@@ -114,12 +196,41 @@ class Esperienza:
             if trascorso >= transizione + permanenza:
                 self.indice += 1
                 if self.indice >= len(self.copione):
-                    self.stato = "fine"
-                    self.finita = True
-                    print("esperienza: conclusa")
+                    # la danza finisce sull'ultima scritta di CHIUSURA, che e'
+                    # gia' l'invito a chiudere gli occhi per meditare
+                    self._vai("invito_meditazione", ora)
                 else:
                     self.t_stato = ora
                     self._mostra_scena_corrente()
+
+        elif self.stato == "invito_meditazione":
+            if stato_occhi == "chiusi" or trascorso >= MAX_ATTESA_GESTO:
+                self._vai("meditazione", ora)
+                self.scena.mostra("volto", transizione=TRANSIZIONE)
+
+        elif self.stato == "meditazione":
+            pronto_a_finire = trascorso >= MIN_MEDITAZIONE
+            if (stato_occhi == "aperti" and pronto_a_finire) or trascorso >= MAX_MEDITAZIONE:
+                self._durata_meditazione = trascorso
+                self._vai("preparazione_mandala", ora)
+                self._mostra_blocco(ATTESA_MANDALA, 0, ora, TRANSIZIONE_BREVE)
+                self._invia_mandala()
+
+        elif self.stato == "preparazione_mandala":
+            if len(ATTESA_MANDALA) > 1 and (ora - self._t_blocco) >= DURATA_ATTESA_MANDALA:
+                prossimo = (self._indice_blocco + 1) % len(ATTESA_MANDALA)
+                self._mostra_blocco(ATTESA_MANDALA, prossimo, ora, TRANSIZIONE_BREVE)
+            # il mandala e' puro calcolo, pronto quasi subito: qui non si
+            # aspetta perche' serva, ma perche' la scritta va letta
+            if trascorso >= DURATA_ATTESA_MANDALA:
+                self._vai("mandala", ora)
+                self.scena.mostra("mandala", transizione=TRANSIZIONE_MANDALA)
+
+        elif self.stato == "mandala":
+            if trascorso >= PERMANENZA_MANDALA:
+                self.stato = "fine"
+                self.finita = True
+                print("esperienza: conclusa")
 
     # ---------- interno ----------
 
@@ -127,11 +238,20 @@ class Esperienza:
         self.stato = stato
         self.t_stato = ora
 
-    def _genera_in_background(self):
-        """La chiamata a Claude vive in un thread suo: cosi' la scritta di
-        attesa continua a fluttuare e la webcam a girare mentre si aspetta."""
+    def _mostra_blocco(self, blocchi, indice, ora, transizione=TRANSIZIONE):
+        """Mostra un blocco di testo di una sequenza (SALUTO/INVITO/ATTESA) e
+        ricorda quando e' iniziato, per sapere quando passare al successivo."""
+        self._indice_blocco = indice
+        self._t_blocco = ora
+        self.scena.mostra("testo", blocchi[indice], transizione=transizione)
+
+    def _avvia_generazione(self, racconto):
+        """La chiamata a Claude vive in un thread suo: cosi' i blocchi
+        d'attesa continuano a scorrere e la webcam a girare mentre si aspetta."""
+        self._generazione_avviata = True
+
         def lavoro():
-            self._materiale = testi.genera(self.racconto)
+            self._materiale = testi.genera(racconto)
 
         print("esperienza: genero le frasi...")
         threading.Thread(target=lavoro, daemon=True).start()
@@ -152,13 +272,32 @@ class Esperienza:
             ("testo", m["frase_1"], TRANSIZIONE, PERMANENZA_FRASE),
             ("volto", "", TRANSIZIONE, PERMANENZA_VOLTO),
             ("testo", m["frase_2"], TRANSIZIONE, PERMANENZA_FRASE),
-            ("testo", m["concetto"], 5.0, PERMANENZA_CONCETTO),
+            ("testo", m["concetto"], TRANSIZIONE, PERMANENZA_CONCETTO),
         ]
         for scritta in CHIUSURA:
             self.copione.append(("testo", scritta, TRANSIZIONE, PERMANENZA_CHIUSURA))
-        self.copione.append(("volto", "", 5.0, 2.0))
         self.indice = 0
 
     def _mostra_scena_corrente(self):
         tipo, contenuto, transizione, _ = self.copione[self.indice]
         self.scena.mostra(tipo, contenuto, transizione)
+
+    def _invia_mandala(self):
+        """Combina il carattere scelto da Claude con quanto e' durata la
+        meditazione: piu' tempo, piu' dettaglio.
+
+        I petali crescono piu' in fretta degli anelli, e non e' un dettaglio:
+        le particelle sono un numero fisso, quindi ogni anello in piu' se le
+        divide e toglie definizione a tutti. I petali invece aggiungono
+        merletto senza costare nulla. Il seed cambia ad ogni sessione, cosi'
+        due mandala con gli stessi parametri non sono mai identici."""
+        m = self._materiale
+        bonus = min(int(self._durata_meditazione // SECONDI_PER_LIVELLO), BONUS_MASSIMO)
+        petali = m["mandala_petali"] + bonus
+        anelli = m["mandala_anelli"] + bonus // 2
+        seed = random.randint(0, 999_999)
+        print(
+            f"  meditazione: {self._durata_meditazione:.0f}s -> "
+            f"+{bonus} di dettaglio ({petali} petali, {anelli} anelli)"
+        )
+        self.scena.prepara_mandala(petali, anelli, m["mandala_tonalita"], seed)

@@ -3,27 +3,38 @@ L'esperienza: decide cosa mostrare e quando.
 
 E' scritta come macchina a stati e NON aspetta mai. Ad ogni giro del ciclo
 principale le si chiede "e adesso?" e lei risponde in un istante. E' la
-differenza che permette al sistema di reagire: se dormisse, non potrebbe
-accorgersi di nulla — ne' degli occhi che si chiudono, ne' della voce.
+differenza che permette al sistema di reagire agli occhi: se dormisse, non
+potrebbe accorgersi di nulla.
 
-La chiamata a Claude gira in un thread separato per lo stesso motivo: mentre
-si aspetta la risposta, la webcam continua a girare e le particelle a muoversi.
+Il filo:
+    saluto   -> benvenuto a schermo
+    invito   -> "chiudi gli occhi e parlami", finche' non li chiude
+    ascolto  -> occhi chiusi, l'utente parla; a schermo il suo volto
+    attesa   -> ha riaperto gli occhi: si genera, a schermo "preparo..."
+    danza    -> volto, frase, volto, frase, concetto, chiusura
+
+La chiamata a Claude gira in un thread separato: mentre si aspetta la
+risposta la webcam continua e le particelle si muovono.
 """
 
 import threading
 
+import occhi as modulo_occhi
 import scena as modulo_scena
 import testi
 
 # ---------- scritte sempre uguali ----------
-INVITO = "ESPRIMITI"
+SALUTO = "BENVENUTO"
+INVITO = "CHIUDI GLI OCCHI E PARLAMI"
 ATTESA = "PREPARO LA TUA MEDITAZIONE"
 CHIUSURA = ["BUONA MEDITAZIONE", "CHIUDI GLI OCCHI"]
 
 # ---------- tempi (secondi) ----------
-DURATA_INVITO = 5.0        # quanto resta a schermo l'invito iniziale
+DURATA_SALUTO = 4.0
+MIN_ASCOLTO = 3.0          # sotto questa durata l'ascolto non puo' finire
+MAX_ATTESA_GESTO = 90.0    # se il gesto non arriva mai, si prosegue lo stesso
 ATTESA_MINIMA = 3.0        # l'attesa non lampeggia mai: dura almeno cosi'
-TRANSIZIONE = 4.0          # quanto dura il passaggio da una forma all'altra
+TRANSIZIONE = 4.0
 PERMANENZA_VOLTO = 3.0
 PERMANENZA_FRASE = 5.0
 PERMANENZA_CONCETTO = 6.0
@@ -34,47 +45,66 @@ class Esperienza:
     def __init__(self, scena: modulo_scena.Scena, racconto: str):
         self.scena = scena
         self.racconto = racconto
+        self.occhi = modulo_occhi.Rilevatore()
 
         self.stato = None
         self.t_stato = 0.0
         self.finita = False
 
-        self._materiale = None      # riempito dal thread di generazione
-        self._t_pronto = None       # quando le scritte generate sono state preparate
+        self._ultimo_stato_occhi = None
+        self._materiale = None
+        self._t_pronto = None
 
-        self.copione = []           # (tipo, contenuto, transizione, permanenza)
+        self.copione = []
         self.indice = 0
 
     # ---------- avvio ----------
 
     def avvia(self, ora):
-        self.scena.prepara([INVITO, ATTESA] + CHIUSURA)
-        self._vai("invito", ora)
-        self.scena.mostra("testo", INVITO, transizione=3.0)
+        self.scena.prepara([SALUTO, INVITO, ATTESA] + CHIUSURA)
+        self._vai("saluto", ora)
+        self.scena.mostra("testo", SALUTO, transizione=3.0)
 
     # ---------- il ciclo lo chiama ad ogni fotogramma ----------
 
-    def aggiorna(self, ora):
+    def aggiorna(self, ora, punti=None):
         if self.finita:
             return
+
+        stato_occhi = self.occhi.aggiorna(punti, ora)
+        if stato_occhi != self._ultimo_stato_occhi:
+            print(f"occhi: {stato_occhi}")
+            self._ultimo_stato_occhi = stato_occhi
+
         trascorso = ora - self.t_stato
 
-        if self.stato == "invito":
-            if trascorso >= DURATA_INVITO:
+        if self.stato == "saluto":
+            if trascorso >= DURATA_SALUTO:
+                self._vai("invito", ora)
+                self.scena.mostra("testo", INVITO, transizione=3.0)
+
+        elif self.stato == "invito":
+            # si passa oltre quando chiude gli occhi (o dopo molto tempo,
+            # per non lasciare il sistema bloccato durante una presentazione)
+            if stato_occhi == "chiusi" or trascorso >= MAX_ATTESA_GESTO:
+                self._vai("ascolto", ora)
+                self.scena.mostra("volto", transizione=TRANSIZIONE)
+                print("ascolto: sto ascoltando (il microfono arrivera' dopo)")
+
+        elif self.stato == "ascolto":
+            pronto_a_finire = trascorso >= MIN_ASCOLTO
+            if (stato_occhi == "aperti" and pronto_a_finire) or trascorso >= MAX_ATTESA_GESTO:
                 self._vai("attesa", ora)
                 self.scena.mostra("testo", ATTESA, transizione=2.5)
                 self._genera_in_background()
 
         elif self.stato == "attesa":
             if self._materiale is not None and self._t_pronto is None:
-                # la risposta e' arrivata: preparo le scritte e aspetto che TD
-                # le abbia disegnate prima di mostrarle
                 self._prepara_scritte_generate()
                 self._t_pronto = ora
             pronto = self._t_pronto is not None
-            passato_abbastanza = trascorso >= ATTESA_MINIMA
             td_pronto = pronto and (ora - self._t_pronto) >= modulo_scena.TEMPO_DI_PREPARAZIONE
-            if pronto and passato_abbastanza and td_pronto:
+            if pronto and td_pronto and trascorso >= ATTESA_MINIMA:
                 self._costruisci_copione()
                 self._vai("danza", ora)
                 self._mostra_scena_corrente()

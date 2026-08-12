@@ -45,8 +45,8 @@ def main():
     try:
         esperienza.avvia(time.time())
         while not esperienza.finita:
-            volto.aggiorna()
-            esperienza.aggiorna(time.time())
+            punti = volto.aggiorna()
+            esperienza.aggiorna(time.time(), punti)
             if volto.uscita_richiesta():
                 print("\ninterrotto dalla finestra webcam")
                 break

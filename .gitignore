@@ -5,3 +5,12 @@ __pycache__/
 # chiavi API: non devono mai finire nel repository
 .env
 *.key
+
+# i mandala generati sono il ricordo personale di chi ha meditato,
+# non materiale di progetto
+visuals/mandala/
+
+# TouchDesigner salva copie numerate quando project.save() viene chiamato
+# senza percorso esplicito: sono duplicati, il progetto vero e' visual_TD.toe
+visuals/visual_TD.[0-9].toe
+visuals/visual_TD.[0-9][0-9].toe

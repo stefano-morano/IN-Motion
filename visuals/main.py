@@ -1,8 +1,7 @@
 """
 IN-Motion — punto di avvio unico.
 
-Un solo comando avvia tutto, Ctrl+C (o 'q' sulla finestra della webcam)
-ferma tutto in modo pulito.
+Un solo comando avvia tutto, Ctrl+C ferma tutto in modo pulito.
 
     python3 main.py "sono stressato per la tesi e non dormo da giorni"
 
@@ -11,6 +10,10 @@ Prima serve:
     quando non e' la finestra attiva il suo orologio rallenta e le
     transizioni restano immobili
   - ANTHROPIC_API_KEY impostata (senza, si usano le frasi di riserva)
+
+La webcam lavora senza mostrare nulla: la finestra di anteprima esisteva solo
+per controllare cosa vedeva, e rubava il primo piano a TouchDesigner. Per
+riaccenderla in fase di debug, ANTEPRIMA_WEBCAM qui sotto.
 """
 
 import sys
@@ -28,6 +31,10 @@ from scena import Scena
 
 SECONDI_PER_PASSARE_A_TD = 3
 
+# True solo per capire cosa inquadra la telecamera: apre una finestra che
+# durante una sessione vera darebbe fastidio a TouchDesigner.
+ANTEPRIMA_WEBCAM = False
+
 RACCONTO_PREDEFINITO = "oggi mi sento agitato e non riesco a fermare i pensieri"
 
 
@@ -43,7 +50,7 @@ def main():
     print(f'racconto: "{racconto}"\n')
 
     scena = Scena()
-    volto = Volto()
+    volto = Volto(anteprima=ANTEPRIMA_WEBCAM)
 
     # Il modello di trascrizione si carica adesso, non quando serve: farlo
     # dopo aggiungerebbe secondi di attesa nel momento peggiore.
@@ -63,6 +70,7 @@ def main():
         while not esperienza.finita:
             punti = volto.aggiorna()
             esperienza.aggiorna(time.time(), punti)
+            # ha effetto solo con l'anteprima accesa ('q' sulla finestra)
             if volto.uscita_richiesta():
                 print("\ninterrotto dalla finestra webcam")
                 break

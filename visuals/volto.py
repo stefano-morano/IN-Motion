@@ -79,9 +79,14 @@ def trova_camera(percorso_modello):
 
 
 class Volto:
-    """Cattura la webcam e manda i punti del viso a TouchDesigner."""
+    """Cattura la webcam e manda i punti del viso a TouchDesigner.
 
-    def __init__(self, anteprima=True):
+    anteprima=False (il modo normale): nessuna finestra. La webcam funziona
+    lo stesso — la finestra serviva solo a guardare, e rubava il primo piano
+    a TouchDesigner, che invece deve restare la finestra attiva.
+    Mettila a True solo per capire cosa vede la telecamera."""
+
+    def __init__(self, anteprima=False):
         self.anteprima = anteprima
         self.client = udp_client.SimpleUDPClient(TD_IP, PORTA_VOLTO)
 
@@ -104,6 +109,7 @@ class Volto:
         self.inizio = time.time()
         self.fallimenti = 0
         self.uscita = False
+        self.mai_visto = False
 
     def aggiorna(self):
         """Legge un fotogramma, manda i punti a TD e li restituisce.
@@ -128,6 +134,12 @@ class Volto:
             for p in punti:
                 piatto.extend([p.x, p.y, p.z])
             self.client.send_message(INDIRIZZO_OSC, piatto)
+
+            # senza finestra di anteprima non ci sarebbe alcun segno che la
+            # telecamera funziona: una riga la prima volta che vede qualcuno
+            if not self.mai_visto:
+                self.mai_visto = True
+                print("volto: ti vedo")
 
             if self.anteprima:
                 h, w, _ = fotogramma.shape

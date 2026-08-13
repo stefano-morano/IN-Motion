@@ -1,0 +1,23 @@
+PARAMETRI testo_top rilevanti:
+  wordwrap         = True  (2 voci menu)
+  font             = 'Verdana'  (190 voci menu)
+  fontfile         = ''  (0 voci menu)
+  bold             = False  (2 voci menu)
+  italic           = False  (2 voci menu)
+  fontsizex        = 90.0  (0 voci menu)
+  fontsizey        = 30.0  (0 voci menu)
+  alignx           = 'center'  (3 voci menu)
+  aligny           = 'center'  (3 voci menu)
+  fontcolorr       = 1.0  (0 voci menu)
+  fontcolorg       = 1.0  (0 voci menu)
+  fontcolorb       = 1.0  (0 voci menu)
+  bgcolorr         = 0.0  (0 voci menu)
+  bgcolorg         = 0.0  (0 voci menu)
+  bgcolorb         = 0.0  (0 voci menu)
+  bgalpha          = 0.0  (0 voci menu)
+  outputresolution = 'custom'  (11 voci menu)
+  resolutionw      = 1280  (14 voci menu)
+  resolutionh      = 720  (14 voci menu)
+
+FONT disponibili (190):
+Academy Engraved LET, Al Bayan, Al Nile, Al Tarikh, Aleo, American Typewriter, AmpleSoundTab, Andale Mono, Apple Braille, Apple Chancery, Apple Color Emoji, Apple SD Gothic Neo, Apple Symbols, AppleGothic, AppleMyungjo, Arial, Arial Black, Arial Hebrew, Arial Hebrew Scholar, Arial Narrow, Arial Rounded MT Bold, Arial Unicode MS, Avenir, Avenir Next, Avenir Next Condensed, Ayuthaya, BLASTIMO SANS, Baghdad, Bangla MN, Bangla Sangam MN, Baskerville, Bebas Neue, Beirut, Big Caslon, Bodoni 72, Bodoni 72 Oldstyle, Bodoni 72 Smallcaps, Bodoni Ornaments, Bradley Hand, Brush Script MT, Chalkboard, Chalkboard SE, Chalkduster, Charter, Cochin, Comic Sans MS, Copperplate, Corsiva Hebrew, Courier New, DIN Alternate, DIN Condensed, Damascus, DecoType Naskh, Devanagari MT, Devanagari Sangam MN, Didot, Diwan Kufi, Diwan Thuluth, Euphemia UCAS, Farah, Farisi, Futura, GB18030 Bitmap, Galvji, Gastroline Signature PERSONAL, Geeza Pro, Geneva, Georgia, Gill Sans, Grantha Sangam MN, Gujarati MT, Gujarati Sangam MN, Gurmukhi MN, Gurmukhi MT, Gurmukhi Sangam MN, Heavy Heap, Heiti SC, Heiti TC, Helvetica, Helvetica Neue, Herculanum, Hiragino Maru Gothic ProN, Hiragino Mincho ProN, Hiragino Sans, Hiragino Sans GB, Hoefler Text, ITF Devanagari, ITF Devanagari Marathi, Impact, InaiMathi, Kailasa, Kannada MN, Kannada Sangam MN, Kefa III, Khmer MN, Khmer Sangam MN, Kohinoor Bangla, Kohinoor Devanagari, Kohinoor Gujarati, Kohinoor Telugu, Kokonor, Krungthep, KufiStandardGK, Lao MN, Lao Sangam MN, Lucida Grande, Luminari, Malayalam MN, Malayalam Sangam MN, Marker Felt, Material Design Icons, Menlo, Microsoft Sans Serif, Mishafi, Mishafi Gold, Monaco, Mshtakan, Mukta Mahee, Muna, Myanmar MN, Myanmar Sangam MN, Nadeem, New Peninim MT, Noteworthy, Noto Nastaliq Urdu, Noto Sans Batak, Noto Sans CJK JP, Noto Sans Kannada, Noto Sans Myanmar, Noto Sans NKo, Noto Sans Oriya, Noto Sans Syriac, Noto Sans Tagalog, Noto Serif Myanmar, Open Sans, Optima, Oriya MN, Oriya Sangam MN, PT Mono, PT Sans, PT Sans Caption, PT Sans Narrow, PT Serif, PT Serif Caption, Palatino, Papyrus, Party LET, Phosphate, PingFang HK, PingFang MO, PingFang SC, PingFang TC, Plantagenet Cherokee, Raanana, Roboto, Rockwell, STIX Two Math, STIX Two Text, STSong, Sana, Sathu, Savoye LET, Shree Devanagari 714, SignPainter, Silom, Sinhala MN, Sinhala Sangam MN, Skia, Snell Roundhand, Songti SC, Songti TC, Sukhumvit Set, Symbol, Tahoma, Tamil MN, Tamil Sangam MN, Telugu MN, Telugu Sangam MN, Thonburi, Times New Roman, Trattatello, Trebuchet MS, Verdana, Waseem, Webdings, Wingdings, Wingdings 2, Wingdings 3, Zapf Dingbats, Zapfino

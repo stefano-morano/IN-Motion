@@ -37,6 +37,7 @@ risposta la webcam continua e le particelle si muovono.
 import random
 import threading
 
+import mandala as modulo_mandala
 import occhi as modulo_occhi
 import scena as modulo_scena
 import testi
@@ -301,3 +302,16 @@ class Esperienza:
             f"+{bonus} di dettaglio ({petali} petali, {anelli} anelli)"
         )
         self.scena.prepara_mandala(petali, anelli, m["mandala_tonalita"], seed)
+
+        # Lo stesso mandala, ad alta risoluzione, come file da portare via.
+        # Gira in un thread: disegnare 260.000 particelle richiede un paio di
+        # secondi e il ciclo principale non deve fermarsi per questo.
+        self._salva_immagine(petali, anelli, m["mandala_tonalita"], seed)
+
+    def _salva_immagine(self, petali, anelli, tonalita, seed):
+        def lavoro():
+            percorso = modulo_mandala.salva(petali, anelli, tonalita, seed)
+            if percorso:
+                print(f"  il tuo mandala e' salvato in: {percorso}")
+
+        threading.Thread(target=lavoro, daemon=True).start()

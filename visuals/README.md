@@ -39,6 +39,16 @@ Si ferma con `Ctrl+C`, o premendo `q` sulla finestra della webcam.
 Gli occhi vanno tenuti chiusi (o aperti) **2 secondi** perche' il cambiamento
 conti: sotto quella soglia e' un battito di ciglia, non una scelta.
 
+Alla fine il mandala viene salvato anche come **immagine da portare via**, in
+`mandala/`, a 2400×2400 pixel. E' lo stesso disegno visto a schermo — stessi
+petali, stessi anelli, stesso colore, stesso seme — ridisegnato con 260.000
+particelle invece di 13.664, perche' li' non deve animarsi.
+
+Due cose lo rendono personale: **Claude ne sceglie il carattere** (quanti
+petali, quanti anelli, che colore) da cio' che hai raccontato, e **la
+complessita' cresce con quanto sei rimasto in meditazione** — un livello di
+dettaglio ogni 40 secondi.
+
 ## I file
 
 | File | Cosa fa |
@@ -50,8 +60,11 @@ conti: sotto quella soglia e' un battito di ciglia, non una scelta.
 | `testi.py` | frasi e carattere del mandala, da Claude |
 | `scena.py` | i comandi verso TD |
 | `esperienza.py` | **decide cosa succede e quando** |
+| `mandala.py` | disegna il mandala ad alta risoluzione, da portare via |
 | `taratura.py` | attrezzo: misura la soglia degli occhi sul tuo viso |
-| `td_*.py` | copie di riferimento degli script che girano dentro TD |
+| `td_face_points.py` | copia di riferimento del motore grafico dentro TD |
+| `td_controllo_osc.py` | copia di riferimento del ricevitore OSC dentro TD |
+| `td_estetica.py` | ricostruisce dentro TD tutta la resa grafica |
 
 `esperienza.py` e' il file da aprire per cambiare le scritte o i tempi: sono
 tutte costanti in cima.
@@ -74,6 +87,16 @@ senza microfono, l'esperienza va avanti con frasi di riserva scritte a mano.
 **La privacy e' una scelta di progetto.** Il volto diventa coordinate e l'audio
 viene trascritto in locale: a TouchDesigner non arriva mai il video, e l'audio
 non lascia il computer. Esce solo il testo, e solo verso Claude.
+
+**La resa grafica e' codice, non nodi cliccati.** Colore per particella, fusione
+additiva e la catena bagliore → sfondo → vignetta → grana sono costruiti da
+`td_estetica.py`. Il `.toe` e' binario: se la resa vivesse solo li' dentro,
+sarebbe invisibile a git e irrecuperabile in caso di guaio. Per ricostruirla,
+dentro TouchDesigner:
+
+```python
+exec(open('/percorso/di/visuals/td_estetica.py').read())
+```
 
 ## Prima volta
 

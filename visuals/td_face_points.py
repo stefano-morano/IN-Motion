@@ -4,9 +4,11 @@
 # Serve perche' il .toe e' binario: senza questa copia le modifiche alla
 # logica di TouchDesigner sarebbero invisibili a git e irrecuperabili se
 # il progetto si corrompesse. Modificare QUI non cambia nulla: va
-# ricaricata dentro TD.
+# ricaricata dentro TD con:
+#   op('/project1/face_points_callbacks').text = open('td_face_points.py').read()
 
-# Decide dove deve stare ogni particella, fotogramma per fotogramma.
+# Decide dove deve stare ogni particella, e di che colore, fotogramma per
+# fotogramma.
 #
 # Riceve i 1434 numeri di MediaPipe (x,y,z, x,y,z, ...) e li usa per costruire
 # la forma "volto"; in alternativa usa una scritta gia' preparata, oppure il
@@ -27,13 +29,46 @@ import numpy as np
 # ---------- forma del volto ----------
 ASPETTO = 16.0 / 9.0    # la webcam e' 16:9, senza questo il volto e' stretto
 SCALA = 2.0
-PER_TRIANGOLO = 16      # particelle dentro ogni triangolino della mesh
+
+TOTALE_PARTICELLE = 13664
+
+# Come si distribuiscono le particelle fra i triangoli della mesh.
+# I punti di MediaPipe sono fittissimi attorno a occhi, narici e labbra e radi
+# sulle guance. Le due strade estreme sono state provate entrambe e sbagliano
+# tutte e due:
+#   esponente 0  -> quota uguale per triangolo: i lineamenti si vedono benissimo
+#                   (sono proprio gli addensamenti a disegnarli) ma in fusione
+#                   additiva bruciano in macchie bianche
+#   esponente 1  -> densita' di superficie uniforme: niente piu' bruciature,
+#                   ma il volto diventa una macchia informe senza occhi ne' bocca
+# La via di mezzo tiene gli addensamenti che disegnano il viso, smorzandoli
+# quanto basta perche' non saturino.
+ESPONENTE_DENSITA = 0.45
 
 # ---------- scritte ----------
 # Ingombro massimo concesso a una scritta: viene ridimensionata per starci
 # dentro, qualunque sia la sua lunghezza, cosi' non esce mai dall'inquadratura.
 TESTO_LARGHEZZA = 1.9
 TESTO_ALTEZZA = 0.9
+
+# ---------- colore ----------
+# Ogni particella ha il SUO colore, preso lungo un gradiente fra due tinte:
+# una profonda e spenta, una luminosa. Non e' decorazione — e' quello che da'
+# profondita': le particelle di nebbia pescano dal fondo scuro e sprofondano,
+# quelle della forma pescano dall'alto e vengono avanti. Con un colore piatto
+# la nuvola sembra un adesivo, con il gradiente sembra volume.
+#
+# Il materiale e' in fusione additiva: dove le particelle si sovrappongono la
+# luce si somma, come polvere illuminata. Per questo i valori di partenza sono
+# bassi: sono la luce di UNA particella, non quella che si vede.
+PALETTE_CALMA = {
+    'fondo':  (0.020, 0.045, 0.115),  # indaco profondo
+    'luce':   (0.300, 0.460, 0.640),  # azzurro, non bianco
+}
+NEBBIA_LUMINOSITA = 0.35   # quanto sono piu' spente le particelle sospese
+SCINTILLIO = 0.16          # quanto ogni particella respira di luce propria
+SCINTILLIO_VELOCITA = 0.35
+PROFONDITA_COLORE = 0.30   # quanto la vicinanza all'osservatore schiarisce
 
 # ---------- mandala ----------
 # Non serve disegnarlo e poi campionarlo come il testo: anelli concentrici
@@ -53,7 +88,6 @@ MANDALA_ROTAZIONE = 0.06     # giri al secondo (lenta: ~17s per giro completo)
 MANDALA_NEBBIA = 0.3         # la nebbia che va bene per volto e testo qui
                              # cancellerebbe il disegno: il mandala e' l'unica
                              # forma che deve leggersi nitida, non suggerita
-COLORE_DEFAULT = (0.62, 0.80, 0.95)   # blu tenue, il colore di volto e testo
 
 DURATA_TRANSIZIONE = 4.0  # secondi per passare da una forma all'altra
 RITARDO_MAX = 0.7         # 0 = tutte le particelle partono insieme,
@@ -87,23 +121,61 @@ INERZIA_MAX = 0.28
 _c = {}
 
 
-def _prepara(n):
+def _quote_per_area(triangoli, P):
+    """Quante particelle tocca a ciascun triangolo. In proporzione all'area,
+    cosi' la superficie ha densita' uniforme invece di ammassarsi dove i punti
+    del viso sono fitti. Serve una posa di riferimento per misurare le aree:
+    se il volto si avvicina o allontana scalano tutte insieme, quindi le
+    proporzioni restano valide e il calcolo si fa una volta sola."""
+    if P is None:
+        # nessuna posa disponibile: ripiego sulla divisione in parti uguali
+        quota = max(TOTALE_PARTICELLE // triangoli.shape[0], 1)
+        return np.full(triangoli.shape[0], quota, dtype=np.int64)
+
+    v0, v1, v2 = P[triangoli[:, 0]], P[triangoli[:, 1]], P[triangoli[:, 2]]
+    aree = 0.5 * np.linalg.norm(np.cross(v1 - v0, v2 - v0), axis=1)
+    if float(aree.sum()) <= 1e-9:
+        quota = max(TOTALE_PARTICELLE // triangoli.shape[0], 1)
+        return np.full(triangoli.shape[0], quota, dtype=np.int64)
+
+    # l'esponente decide quanto seguire l'area (vedi ESPONENTE_DENSITA)
+    peso = np.power(aree, ESPONENTE_DENSITA)
+    peso /= peso.sum()
+
+    # almeno una particella ciascuno: nessun triangolo deve sparire del tutto
+    conteggi = np.maximum(1, np.round(peso * TOTALE_PARTICELLE)).astype(np.int64)
+
+    # l'arrotondamento sballa il totale: si aggiusta sui triangoli piu' grandi,
+    # dove una particella in piu' o in meno non si nota
+    differenza = TOTALE_PARTICELLE - int(conteggi.sum())
+    if differenza:
+        ordine = np.argsort(-aree)
+        passo = 1 if differenza > 0 else -1
+        for i in range(abs(differenza)):
+            j = ordine[i % ordine.size]
+            if conteggi[j] + passo >= 1:
+                conteggi[j] += passo
+    return conteggi
+
+
+def _prepara(n, P=None):
     """Sorteggia, una volta sola, le caratteristiche fisse di ogni particella:
     dove sta dentro il suo triangolo, quanto e' pigra, se e' nebbia, come
-    oscilla, in che direzione fiorisce."""
+    oscilla, in che direzione fiorisce, che tono di colore le tocca."""
     percorso = os.path.join(project.folder, 'face_triangoli.txt')
     triangoli = np.loadtxt(percorso, dtype=np.int64, comments='#')
 
     rng = np.random.default_rng(7)
 
+    conteggi = _quote_per_area(triangoli, P)
+    idx = np.repeat(triangoli, conteggi, axis=0)
+    n_part = idx.shape[0]
+
     # posizione casuale dentro ogni triangolo (coordinate baricentriche)
-    r = rng.random((triangoli.shape[0] * PER_TRIANGOLO, 2))
+    r = rng.random((n_part, 2))
     fuori = r.sum(axis=1) > 1.0
     r[fuori] = 1.0 - r[fuori]
     pesi = np.column_stack([1.0 - r[:, 0] - r[:, 1], r[:, 0], r[:, 1]]).astype('float32')
-
-    idx = np.repeat(triangoli, PER_TRIANGOLO, axis=0)
-    n_part = pesi.shape[0]
 
     _c['a'], _c['b'], _c['c'] = idx[:, 0], idx[:, 1], idx[:, 2]
     _c['pesi'] = pesi
@@ -115,6 +187,7 @@ def _prepara(n):
     scostamento = rng.normal(0.0, 1.0, (n_part, 3)).astype('float32')
     scostamento[~e_nebbia] = 0.0
     _c['nebbia'] = scostamento
+    _c['e_nebbia'] = e_nebbia
 
     _c['frequenze'] = rng.uniform(0.15, 0.6, (n_part, 3)).astype('float32')
     _c['fasi'] = rng.uniform(0.0, 6.283, (n_part, 3)).astype('float32')
@@ -130,8 +203,19 @@ def _prepara(n):
     d /= np.linalg.norm(d, axis=1, keepdims=True)
     _c['direzioni'] = d.astype('float32')
 
+    # dove pesca ogni particella lungo il gradiente di colore. La nebbia pesca
+    # in basso (resta sul fondo scuro), la forma in alto (viene avanti).
+    tono = rng.uniform(0.45, 1.0, n_part)
+    tono[e_nebbia] = rng.uniform(0.0, NEBBIA_LUMINOSITA, int(e_nebbia.sum()))
+    _c['tono'] = tono.astype('float32')
+    _c['scint_freq'] = rng.uniform(0.5, 1.6, n_part).astype('float32')
+    _c['scint_fase'] = rng.uniform(0.0, 6.283, n_part).astype('float32')
+
     _c['posizioni'] = None
     _c['n'] = n
+    # ricorda se le aree sono state misurate su un volto vero: se no, va
+    # rifatto appena arriva il primo fotogramma buono
+    _c['per_area'] = P is not None
 
 
 def _campiona_scritta(n):
@@ -175,12 +259,18 @@ def _raggio_visibile():
     return (mezza_larghezza / aspetto) * MANDALA_RIEMPIMENTO
 
 
+def _riparti(n, gruppi):
+    """n diviso in 'gruppi' parti il piu' uguali possibile."""
+    base, resto = divmod(n, gruppi)
+    return [base + (1 if i < resto else 0) for i in range(gruppi)]
+
+
 def _genera_mandala(n, petali, anelli, seed):
     """Posizioni disposte in anelli concentrici, ciascuno modulato da 'petali'
     lobi piu' una seconda armonica che aggiunge merletto. Gli anelli alternati
     sono sfasati di mezzo petalo (i lobi si incastrano invece di allinearsi) e
-    alcuni sono "a perline": le particelle si raccolgono in gruppi discreti
-    invece di spalmarsi, ed e' quello che da' l'aria di mandala vero."""
+    la simmetria viene dagli ANGOLI, non dal raggio: e' quello che la rende
+    leggibile anche quando gli anelli sono tanti."""
     anelli = max(int(anelli), 1)
     petali = max(int(petali), 2)
     rng = np.random.default_rng(int(seed))
@@ -264,12 +354,6 @@ def _genera_mandala(n, petali, anelli, seed):
     _c['mandala_raggi'] = raggi.astype('float32')
     _c['mandala_raggio_max'] = float(raggio_max)
     return n
-
-
-def _riparti(n, gruppi):
-    """n diviso in 'gruppi' parti il piu' uguali possibile."""
-    base, resto = divmod(n, gruppi)
-    return [base + (1 if i < resto else 0) for i in range(gruppi)]
 
 
 def _forma_mandala(ora):
@@ -366,22 +450,53 @@ def _forma(scena, P, n, ora):
     return _forma_volto(P)
 
 
-def _applica_colore(tipo):
-    """Il mandala prende il colore scelto da Claude in base al tono del
-    racconto; volto e testo restano sul blu tenue di sempre.
-    Scrive i parametri solo quando cambiano davvero: assegnarli ad ogni
-    fotogramma farebbe ricuocere il materiale per nulla."""
-    if tipo == 'mandala' and 'mandala_tonalita' in _c:
-        colore = colorsys.hsv_to_rgb(_c['mandala_tonalita'] / 360.0, 0.55, 0.95)
+def _palette(tipo):
+    """Le due tinte fra cui pesca ogni particella. Volto e testo restano sul
+    blu di sempre; il mandala prende la tonalita' scelta da Claude, declinata
+    in una versione profonda e una luminosa della stessa tinta."""
+    if tipo != 'mandala' or 'mandala_tonalita' not in _c:
+        return PALETTE_CALMA['fondo'], PALETTE_CALMA['luce']
+
+    # I valori restano bassi come nella palette blu: sono la luce di UNA
+    # particella, e in fusione additiva dove si sovrappongono si somma. Una
+    # tinta luminosa vicina al bianco pieno satura e il colore scelto da
+    # Claude sparisce — che e' esattamente il contrario di quello che serve.
+    h = (_c['mandala_tonalita'] % 360.0) / 360.0
+    fondo = colorsys.hsv_to_rgb(h, 0.80, 0.090)
+    # la tinta chiara si sposta un po' di tonalita' e si smorza di saturazione:
+    # due toni identici cambiati solo di luminosita' danno un risultato piatto
+    luce = colorsys.hsv_to_rgb((h - 0.045) % 1.0, 0.42, 0.620)
+    return fondo, luce
+
+
+def _colori(tipo_da, tipo_a, avanzamento, pos, ora):
+    """Il colore di ogni particella: un punto lungo il gradiente fra la tinta
+    profonda e quella luminosa. Durante una transizione le due palette si
+    mescolano, cosi' il colore cambia insieme alla forma invece di scattare."""
+    fondo_a, luce_a = _palette(tipo_a)
+    if tipo_da != tipo_a and avanzamento < 1.0:
+        fondo_d, luce_d = _palette(tipo_da)
+        k = avanzamento
+        fondo = tuple(fondo_d[i] * (1 - k) + fondo_a[i] * k for i in range(3))
+        luce = tuple(luce_d[i] * (1 - k) + luce_a[i] * k for i in range(3))
     else:
-        colore = COLORE_DEFAULT
+        fondo, luce = fondo_a, luce_a
 
-    if _c.get('colore') == colore:
-        return
-    _c['colore'] = colore
+    # ogni particella respira di luce propria, con il suo ritmo
+    scintillio = np.sin(ora * _c['scint_freq'] * SCINTILLIO_VELOCITA
+                        + _c['scint_fase']) * SCINTILLIO
 
-    mat = op('face_mat')
-    mat.par.colorr, mat.par.colorg, mat.par.colorb = colore
+    # cio' che e' piu' vicino all'osservatore schiarisce: e' quello che fa
+    # leggere il volume invece di una sagoma piatta
+    z = pos[:, 2]
+    ampiezza_z = float(z.max() - z.min())
+    profondita = ((z - z.min()) / ampiezza_z - 0.5) * PROFONDITA_COLORE if ampiezza_z > 1e-5 else 0.0
+
+    t = np.clip(_c['tono'] + scintillio + profondita, 0.0, 1.0)[:, None]
+
+    fondo = np.array(fondo, dtype='float32')
+    luce = np.array(luce, dtype='float32')
+    return fondo + (luce - fondo) * t
 
 
 def _stato_danza(ora):
@@ -418,12 +533,13 @@ def onCook(scriptOp):
         -flat[2::3] * SCALA,
     ], axis=1)
 
-    if _c.get('n') != n_punti:
-        _prepara(n_punti)
+    # la prima volta le particelle vengono ripartite per area usando questa
+    # posa del volto: senza un volto vero non si possono misurare i triangoli
+    if _c.get('n') != n_punti or not _c.get('per_area'):
+        _prepara(n_punti, P)
 
     ora = absTime.seconds
     da_scena, a_scena, avanzamento = _stato_danza(ora)
-    _applica_colore(a_scena[0])
 
     n_part = _c['pesi'].shape[0]
     a = _forma(a_scena, P, n_part, ora)
@@ -482,9 +598,14 @@ def onCook(scriptOp):
         pos += (bersaglio - pos) * _c['inerzia']
     _c['posizioni'] = pos
 
+    colore = _colori(da_scena[0], a_scena[0], avanzamento, pos, ora)
+
     scriptOp.numSamples = pos.shape[0]
     scriptOp.appendChan('tx').vals = pos[:, 0]
     scriptOp.appendChan('ty').vals = pos[:, 1]
     scriptOp.appendChan('tz').vals = pos[:, 2]
+    scriptOp.appendChan('r').vals = colore[:, 0]
+    scriptOp.appendChan('g').vals = colore[:, 1]
+    scriptOp.appendChan('b').vals = colore[:, 2]
 
     return

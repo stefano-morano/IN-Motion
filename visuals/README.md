@@ -98,16 +98,53 @@ dentro TouchDesigner:
 exec(open('/percorso/di/visuals/td_estetica.py').read())
 ```
 
-## Prima volta
+## Prima volta, su un computer nuovo
 
 ```bash
-pip install -r requirements.txt
-export ANTHROPIC_API_KEY="sk-ant-..."   # senza, si usano le frasi di riserva
-python3 taratura.py                      # misura la soglia degli occhi
+pip3 install -r requirements.txt
+python3 controlla.py
 ```
 
-La chiave va nell'ambiente, **mai in un file del progetto**: finirebbe su git.
-Chi sviluppa senza chiave non ha nulla da configurare — le frasi di riserva
-tengono in piedi tutto il resto.
+`controlla.py` verifica tutto — librerie, file, telecamera, microfono, modello
+di trascrizione, chiave API, TouchDesigner — e per ogni cosa che manca dice
+**cosa fare esattamente**. Lancialo prima, non poco prima di una prova: e' lui
+a far comparire le richieste di permesso di macOS, e finche' non rispondi il
+programma non vede e non sente nulla.
 
-Al primo avvio Whisper scarica il suo modello (~460 MB), una volta sola.
+Poi:
+
+```bash
+python3 taratura.py     # misura la soglia degli occhi sul TUO viso
+```
+
+### I cinque intoppi tipici
+
+1. **Permessi di telecamera e microfono.** macOS li concede al *programma da
+   cui lanci* (Terminale, VS Code...), non allo script. Se hai risposto no una
+   volta, non te lo richiede piu': Impostazioni di Sistema → Privacy e
+   sicurezza → Fotocamera / Microfono. **Dopo averlo attivato, chiudi e riapri
+   quel programma**, altrimenti il permesso non ha effetto.
+2. **Il modello di Whisper**: ~460 MB scaricati al primo avvio. Falli scaricare
+   in anticipo, con una connessione decente.
+3. **Due TouchDesigner aperti**: il primo si prende le porte OSC e il secondo
+   non riceve piu' nulla — i nodi vanno in errore e sembra tutto rotto. Deve
+   essercene **uno solo**.
+4. **TouchDesigner deve restare la finestra in primo piano**, altrimenti il suo
+   orologio rallenta e le transizioni restano immobili.
+5. **La soglia degli occhi e' personale.** Il valore in `occhi.py` e' stato
+   misurato su un viso e una luce precisi: su un'altra persona puo' sbagliare.
+   `taratura.py` la rimisura in trenta secondi.
+
+### La chiave API
+
+**Non serve a tutti.** Senza chiave il sistema funziona lo stesso, con frasi di
+riserva scritte a mano: chi lavora sui visual, sull'audio o sui tempi non ha
+nulla da configurare. Serve solo a chi vuole provare la generazione sul
+racconto vero.
+
+Se una chiave viene condivisa nel gruppo: si manda **a voce o in un messaggio
+privato**, si mette nell'ambiente (`export ANTHROPIC_API_KEY="..."` in
+`~/.zshrc`), e **mai in un file del progetto** — finirebbe su git al primo
+push. Conviene anche impostare un tetto di spesa nella console di Anthropic:
+una chiave condivisa non si puo' attribuire a nessuno, e revocarla la toglie a
+tutti insieme.

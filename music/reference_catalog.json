@@ -1,0 +1,706 @@
+[
+  {
+    "n_bars": 65,
+    "tempo": 32,
+    "n_chords": 108,
+    "minor_ratio": 0.111,
+    "idx": 70,
+    "piece_id": "610"
+  },
+  {
+    "n_bars": 125,
+    "tempo": 119,
+    "n_chords": 226,
+    "minor_ratio": 0.208,
+    "idx": 52,
+    "piece_id": "268"
+  },
+  {
+    "n_bars": 67,
+    "tempo": 32,
+    "n_chords": 122,
+    "minor_ratio": 0.213,
+    "idx": 41,
+    "piece_id": "1676"
+  },
+  {
+    "n_bars": 126,
+    "tempo": 119,
+    "n_chords": 166,
+    "minor_ratio": 0.235,
+    "idx": 57,
+    "piece_id": "368"
+  },
+  {
+    "n_bars": 74,
+    "tempo": 119,
+    "n_chords": 129,
+    "minor_ratio": 0.24,
+    "idx": 64,
+    "piece_id": "499"
+  },
+  {
+    "n_bars": 81,
+    "tempo": 119,
+    "n_chords": 128,
+    "minor_ratio": 0.242,
+    "idx": 55,
+    "piece_id": "335"
+  },
+  {
+    "n_bars": 124,
+    "tempo": 119,
+    "n_chords": 185,
+    "minor_ratio": 0.243,
+    "idx": 28,
+    "piece_id": "1522"
+  },
+  {
+    "n_bars": 54,
+    "tempo": 119,
+    "n_chords": 68,
+    "minor_ratio": 0.25,
+    "idx": 38,
+    "piece_id": "1664"
+  },
+  {
+    "n_bars": 73,
+    "tempo": 53,
+    "n_chords": 127,
+    "minor_ratio": 0.252,
+    "idx": 15,
+    "piece_id": "1291"
+  },
+  {
+    "n_bars": 58,
+    "tempo": 119,
+    "n_chords": 137,
+    "minor_ratio": 0.255,
+    "idx": 4,
+    "piece_id": "1099"
+  },
+  {
+    "n_bars": 82,
+    "tempo": 119,
+    "n_chords": 159,
+    "minor_ratio": 0.258,
+    "idx": 33,
+    "piece_id": "1609"
+  },
+  {
+    "n_bars": 95,
+    "tempo": 119,
+    "n_chords": 113,
+    "minor_ratio": 0.274,
+    "idx": 54,
+    "piece_id": "289"
+  },
+  {
+    "n_bars": 76,
+    "tempo": 119,
+    "n_chords": 112,
+    "minor_ratio": 0.286,
+    "idx": 61,
+    "piece_id": "424"
+  },
+  {
+    "n_bars": 79,
+    "tempo": 119,
+    "n_chords": 157,
+    "minor_ratio": 0.299,
+    "idx": 11,
+    "piece_id": "1231"
+  },
+  {
+    "n_bars": 66,
+    "tempo": 35,
+    "n_chords": 103,
+    "minor_ratio": 0.301,
+    "idx": 32,
+    "piece_id": "1608"
+  },
+  {
+    "n_bars": 62,
+    "tempo": 119,
+    "n_chords": 72,
+    "minor_ratio": 0.306,
+    "idx": 35,
+    "piece_id": "1616"
+  },
+  {
+    "n_bars": 78,
+    "tempo": 119,
+    "n_chords": 165,
+    "minor_ratio": 0.309,
+    "idx": 2,
+    "piece_id": "1038"
+  },
+  {
+    "n_bars": 130,
+    "tempo": 119,
+    "n_chords": 276,
+    "minor_ratio": 0.315,
+    "idx": 80,
+    "piece_id": "893"
+  },
+  {
+    "n_bars": 100,
+    "tempo": 119,
+    "n_chords": 213,
+    "minor_ratio": 0.319,
+    "idx": 9,
+    "piece_id": "1212"
+  },
+  {
+    "n_bars": 69,
+    "tempo": 119,
+    "n_chords": 131,
+    "minor_ratio": 0.321,
+    "idx": 48,
+    "piece_id": "201"
+  },
+  {
+    "n_bars": 123,
+    "tempo": 119,
+    "n_chords": 187,
+    "minor_ratio": 0.321,
+    "idx": 67,
+    "piece_id": "54"
+  },
+  {
+    "n_bars": 107,
+    "tempo": 119,
+    "n_chords": 173,
+    "minor_ratio": 0.329,
+    "idx": 34,
+    "piece_id": "1612"
+  },
+  {
+    "n_bars": 122,
+    "tempo": 119,
+    "n_chords": 231,
+    "minor_ratio": 0.329,
+    "idx": 53,
+    "piece_id": "279"
+  },
+  {
+    "n_bars": 55,
+    "tempo": 119,
+    "n_chords": 97,
+    "minor_ratio": 0.33,
+    "idx": 83,
+    "piece_id": "93"
+  },
+  {
+    "n_bars": 94,
+    "tempo": 119,
+    "n_chords": 163,
+    "minor_ratio": 0.331,
+    "idx": 17,
+    "piece_id": "1300"
+  },
+  {
+    "n_bars": 100,
+    "tempo": 119,
+    "n_chords": 187,
+    "minor_ratio": 0.337,
+    "idx": 3,
+    "piece_id": "1070"
+  },
+  {
+    "n_bars": 53,
+    "tempo": 50,
+    "n_chords": 118,
+    "minor_ratio": 0.339,
+    "idx": 66,
+    "piece_id": "531"
+  },
+  {
+    "n_bars": 109,
+    "tempo": 119,
+    "n_chords": 234,
+    "minor_ratio": 0.342,
+    "idx": 76,
+    "piece_id": "744"
+  },
+  {
+    "n_bars": 104,
+    "tempo": 119,
+    "n_chords": 181,
+    "minor_ratio": 0.343,
+    "idx": 21,
+    "piece_id": "140"
+  },
+  {
+    "n_bars": 98,
+    "tempo": 119,
+    "n_chords": 99,
+    "minor_ratio": 0.343,
+    "idx": 58,
+    "piece_id": "400"
+  },
+  {
+    "n_bars": 157,
+    "tempo": 119,
+    "n_chords": 248,
+    "minor_ratio": 0.347,
+    "idx": 79,
+    "piece_id": "867"
+  },
+  {
+    "n_bars": 88,
+    "tempo": 119,
+    "n_chords": 164,
+    "minor_ratio": 0.348,
+    "idx": 47,
+    "piece_id": "200"
+  },
+  {
+    "n_bars": 134,
+    "tempo": 119,
+    "n_chords": 172,
+    "minor_ratio": 0.349,
+    "idx": 37,
+    "piece_id": "1637"
+  },
+  {
+    "n_bars": 57,
+    "tempo": 119,
+    "n_chords": 109,
+    "minor_ratio": 0.349,
+    "idx": 63,
+    "piece_id": "462"
+  },
+  {
+    "n_bars": 65,
+    "tempo": 119,
+    "n_chords": 137,
+    "minor_ratio": 0.35,
+    "idx": 8,
+    "piece_id": "1192"
+  },
+  {
+    "n_bars": 98,
+    "tempo": 119,
+    "n_chords": 143,
+    "minor_ratio": 0.35,
+    "idx": 36,
+    "piece_id": "1627"
+  },
+  {
+    "n_bars": 55,
+    "tempo": 119,
+    "n_chords": 117,
+    "minor_ratio": 0.35,
+    "idx": 86,
+    "piece_id": "980"
+  },
+  {
+    "n_bars": 70,
+    "tempo": 161,
+    "n_chords": 151,
+    "minor_ratio": 0.351,
+    "idx": 40,
+    "piece_id": "1672"
+  },
+  {
+    "n_bars": 95,
+    "tempo": 119,
+    "n_chords": 119,
+    "minor_ratio": 0.361,
+    "idx": 27,
+    "piece_id": "1496"
+  },
+  {
+    "n_bars": 84,
+    "tempo": 119,
+    "n_chords": 179,
+    "minor_ratio": 0.363,
+    "idx": 71,
+    "piece_id": "646"
+  },
+  {
+    "n_bars": 100,
+    "tempo": 119,
+    "n_chords": 211,
+    "minor_ratio": 0.365,
+    "idx": 0,
+    "piece_id": "1017"
+  },
+  {
+    "n_bars": 109,
+    "tempo": 119,
+    "n_chords": 183,
+    "minor_ratio": 0.366,
+    "idx": 62,
+    "piece_id": "429"
+  },
+  {
+    "n_bars": 167,
+    "tempo": 119,
+    "n_chords": 278,
+    "minor_ratio": 0.367,
+    "idx": 12,
+    "piece_id": "1232"
+  },
+  {
+    "n_bars": 103,
+    "tempo": 119,
+    "n_chords": 214,
+    "minor_ratio": 0.369,
+    "idx": 7,
+    "piece_id": "1174"
+  },
+  {
+    "n_bars": 101,
+    "tempo": 119,
+    "n_chords": 118,
+    "minor_ratio": 0.373,
+    "idx": 39,
+    "piece_id": "1670"
+  },
+  {
+    "n_bars": 55,
+    "tempo": 119,
+    "n_chords": 112,
+    "minor_ratio": 0.375,
+    "idx": 5,
+    "piece_id": "1141"
+  },
+  {
+    "n_bars": 86,
+    "tempo": 119,
+    "n_chords": 157,
+    "minor_ratio": 0.376,
+    "idx": 69,
+    "piece_id": "586"
+  },
+  {
+    "n_bars": 91,
+    "tempo": 119,
+    "n_chords": 123,
+    "minor_ratio": 0.382,
+    "idx": 29,
+    "piece_id": "1532"
+  },
+  {
+    "n_bars": 94,
+    "tempo": 119,
+    "n_chords": 181,
+    "minor_ratio": 0.387,
+    "idx": 82,
+    "piece_id": "898"
+  },
+  {
+    "n_bars": 138,
+    "tempo": 119,
+    "n_chords": 279,
+    "minor_ratio": 0.391,
+    "idx": 78,
+    "piece_id": "812"
+  },
+  {
+    "n_bars": 179,
+    "tempo": 119,
+    "n_chords": 329,
+    "minor_ratio": 0.392,
+    "idx": 16,
+    "piece_id": "1296"
+  },
+  {
+    "n_bars": 57,
+    "tempo": 119,
+    "n_chords": 93,
+    "minor_ratio": 0.398,
+    "idx": 31,
+    "piece_id": "1601"
+  },
+  {
+    "n_bars": 54,
+    "tempo": 119,
+    "n_chords": 105,
+    "minor_ratio": 0.4,
+    "idx": 73,
+    "piece_id": "687"
+  },
+  {
+    "n_bars": 120,
+    "tempo": 119,
+    "n_chords": 126,
+    "minor_ratio": 0.405,
+    "idx": 43,
+    "piece_id": "1719"
+  },
+  {
+    "n_bars": 72,
+    "tempo": 119,
+    "n_chords": 93,
+    "minor_ratio": 0.409,
+    "idx": 20,
+    "piece_id": "1393"
+  },
+  {
+    "n_bars": 71,
+    "tempo": 59,
+    "n_chords": 124,
+    "minor_ratio": 0.411,
+    "idx": 72,
+    "piece_id": "648"
+  },
+  {
+    "n_bars": 121,
+    "tempo": 44,
+    "n_chords": 168,
+    "minor_ratio": 0.411,
+    "idx": 84,
+    "piece_id": "965"
+  },
+  {
+    "n_bars": 98,
+    "tempo": 119,
+    "n_chords": 204,
+    "minor_ratio": 0.422,
+    "idx": 81,
+    "piece_id": "895"
+  },
+  {
+    "n_bars": 103,
+    "tempo": 119,
+    "n_chords": 208,
+    "minor_ratio": 0.423,
+    "idx": 22,
+    "piece_id": "1419"
+  },
+  {
+    "n_bars": 160,
+    "tempo": 32,
+    "n_chords": 369,
+    "minor_ratio": 0.423,
+    "idx": 74,
+    "piece_id": "700"
+  },
+  {
+    "n_bars": 154,
+    "tempo": 119,
+    "n_chords": 309,
+    "minor_ratio": 0.427,
+    "idx": 19,
+    "piece_id": "1341"
+  },
+  {
+    "n_bars": 95,
+    "tempo": 41,
+    "n_chords": 131,
+    "minor_ratio": 0.427,
+    "idx": 42,
+    "piece_id": "1701"
+  },
+  {
+    "n_bars": 69,
+    "tempo": 119,
+    "n_chords": 138,
+    "minor_ratio": 0.428,
+    "idx": 56,
+    "piece_id": "365"
+  },
+  {
+    "n_bars": 97,
+    "tempo": 119,
+    "n_chords": 158,
+    "minor_ratio": 0.43,
+    "idx": 30,
+    "piece_id": "1588"
+  },
+  {
+    "n_bars": 89,
+    "tempo": 119,
+    "n_chords": 162,
+    "minor_ratio": 0.432,
+    "idx": 10,
+    "piece_id": "1230"
+  },
+  {
+    "n_bars": 115,
+    "tempo": 119,
+    "n_chords": 228,
+    "minor_ratio": 0.443,
+    "idx": 77,
+    "piece_id": "778"
+  },
+  {
+    "n_bars": 92,
+    "tempo": 119,
+    "n_chords": 191,
+    "minor_ratio": 0.445,
+    "idx": 85,
+    "piece_id": "97"
+  },
+  {
+    "n_bars": 85,
+    "tempo": 119,
+    "n_chords": 179,
+    "minor_ratio": 0.453,
+    "idx": 65,
+    "piece_id": "511"
+  },
+  {
+    "n_bars": 119,
+    "tempo": 119,
+    "n_chords": 185,
+    "minor_ratio": 0.454,
+    "idx": 23,
+    "piece_id": "1439"
+  },
+  {
+    "n_bars": 98,
+    "tempo": 119,
+    "n_chords": 136,
+    "minor_ratio": 0.456,
+    "idx": 46,
+    "piece_id": "186"
+  },
+  {
+    "n_bars": 55,
+    "tempo": 119,
+    "n_chords": 114,
+    "minor_ratio": 0.456,
+    "idx": 87,
+    "piece_id": "998"
+  },
+  {
+    "n_bars": 178,
+    "tempo": 119,
+    "n_chords": 232,
+    "minor_ratio": 0.457,
+    "idx": 1,
+    "piece_id": "1019"
+  },
+  {
+    "n_bars": 82,
+    "tempo": 119,
+    "n_chords": 167,
+    "minor_ratio": 0.473,
+    "idx": 6,
+    "piece_id": "1153"
+  },
+  {
+    "n_bars": 135,
+    "tempo": 119,
+    "n_chords": 154,
+    "minor_ratio": 0.474,
+    "idx": 60,
+    "piece_id": "423"
+  },
+  {
+    "n_bars": 105,
+    "tempo": 119,
+    "n_chords": 159,
+    "minor_ratio": 0.478,
+    "idx": 25,
+    "piece_id": "145"
+  },
+  {
+    "n_bars": 79,
+    "tempo": 119,
+    "n_chords": 117,
+    "minor_ratio": 0.479,
+    "idx": 51,
+    "piece_id": "228"
+  },
+  {
+    "n_bars": 82,
+    "tempo": 119,
+    "n_chords": 140,
+    "minor_ratio": 0.486,
+    "idx": 59,
+    "piece_id": "407"
+  },
+  {
+    "n_bars": 120,
+    "tempo": 68,
+    "n_chords": 230,
+    "minor_ratio": 0.5,
+    "idx": 18,
+    "piece_id": "1315"
+  },
+  {
+    "n_bars": 92,
+    "tempo": 119,
+    "n_chords": 131,
+    "minor_ratio": 0.504,
+    "idx": 50,
+    "piece_id": "213"
+  },
+  {
+    "n_bars": 93,
+    "tempo": 119,
+    "n_chords": 110,
+    "minor_ratio": 0.509,
+    "idx": 44,
+    "piece_id": "1725"
+  },
+  {
+    "n_bars": 110,
+    "tempo": 32,
+    "n_chords": 258,
+    "minor_ratio": 0.512,
+    "idx": 75,
+    "piece_id": "726"
+  },
+  {
+    "n_bars": 118,
+    "tempo": 119,
+    "n_chords": 178,
+    "minor_ratio": 0.522,
+    "idx": 26,
+    "piece_id": "1481"
+  },
+  {
+    "n_bars": 122,
+    "tempo": 119,
+    "n_chords": 182,
+    "minor_ratio": 0.527,
+    "idx": 24,
+    "piece_id": "144"
+  },
+  {
+    "n_bars": 133,
+    "tempo": 59,
+    "n_chords": 235,
+    "minor_ratio": 0.54,
+    "idx": 45,
+    "piece_id": "1732"
+  },
+  {
+    "n_bars": 96,
+    "tempo": 119,
+    "n_chords": 182,
+    "minor_ratio": 0.555,
+    "idx": 13,
+    "piece_id": "1234"
+  },
+  {
+    "n_bars": 126,
+    "tempo": 119,
+    "n_chords": 180,
+    "minor_ratio": 0.567,
+    "idx": 49,
+    "piece_id": "205"
+  },
+  {
+    "n_bars": 101,
+    "tempo": 119,
+    "n_chords": 117,
+    "minor_ratio": 0.573,
+    "idx": 68,
+    "piece_id": "568"
+  },
+  {
+    "n_bars": 61,
+    "tempo": 119,
+    "n_chords": 94,
+    "minor_ratio": 0.574,
+    "idx": 14,
+    "piece_id": "125"
+  }
+]

@@ -1,0 +1,11 @@
+**/*.tar.gz
+*dataset*
+**/__pycache__/
+**/.vscode/
+**/*ckpt*/
+**/*.pt
+**/gens/
+.venv/
+*.sf2
+remi_dataset/
+.DS_Store

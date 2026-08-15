@@ -110,7 +110,7 @@ class Esperienza:
         self.copione = []
         self.indice = 0
 
-        self.musica = modulo_musica.Musica()
+        self.musica = modulo_musica.Music()
         self.emozione = "Q2" #default
 
     # ---------- avvio ----------

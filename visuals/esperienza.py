@@ -41,6 +41,7 @@ import mandala as modulo_mandala
 import occhi as modulo_occhi
 import scena as modulo_scena
 import testi
+import musica as modulo_musica
 
 # ---------- scritte sempre uguali ----------
 SALUTO = ["BENVENUTO E GRAZIE PER ESSERE QUI"]
@@ -108,6 +109,9 @@ class Esperienza:
 
         self.copione = []
         self.indice = 0
+
+        self.musica = modulo_musica.Musica()
+        self.emozione = "Q2" #default
 
     # ---------- avvio ----------
 
@@ -208,6 +212,7 @@ class Esperienza:
             if stato_occhi == "chiusi" or trascorso >= MAX_ATTESA_GESTO:
                 self._vai("meditazione", ora)
                 self.scena.mostra("volto", transizione=TRANSIZIONE)
+                self.musica.play(self.emozione, fade=6.0)
 
         elif self.stato == "meditazione":
             pronto_a_finire = trascorso >= MIN_MEDITAZIONE
@@ -216,6 +221,7 @@ class Esperienza:
                 self._vai("preparazione_mandala", ora)
                 self._mostra_blocco(ATTESA_MANDALA, 0, ora, TRANSIZIONE_BREVE)
                 self._invia_mandala()
+                self.musica.fade_out(6.0)
 
         elif self.stato == "preparazione_mandala":
             if len(ATTESA_MANDALA) > 1 and (ora - self._t_blocco) >= DURATA_ATTESA_MANDALA:
@@ -259,6 +265,7 @@ class Esperienza:
 
     def _prepara_scritte_generate(self):
         m = self._materiale
+        self.emozione = m.get("emozione", "Q2") 
         print(f"  frase 1:  {m['frase_1']}")
         print(f"  frase 2:  {m['frase_2']}")
         print(f"  concetto: {m['concetto']}")

@@ -101,9 +101,6 @@ SCHEMA = {
                 "dovrebbe cambiare tono"
             ),
         },
-        # Niente minimum/maximum qui: gli output strutturati non li accettano
-        # (errore 400). I limiti sono scritti nelle istruzioni e, se il modello
-        # sfora lo stesso, li rimettiamo in riga noi con _entro_limiti().
         "mandala_petali": {
             "type": "integer",
             "description": "numero di petali del mandala, da 5 a 9",
@@ -116,14 +113,22 @@ SCHEMA = {
             "type": "number",
             "description": "tonalita' del colore in gradi, da 0 a 359",
         },
+        "emozione": {
+            "type": "string",
+            "enum": ["Q1", "Q2", "Q3", "Q4"],
+            "description": (
+                "lo stato dell'utente dal suo racconto: "
+                "Q1 felice-attivo, Q2 teso-agitato, Q3 triste-spento, Q4 calmo"
+            ),
+        },
     },
     "required": [
         "frase_1", "frase_2", "concetto", "segnale_disagio",
         "mandala_petali", "mandala_anelli", "mandala_tonalita",
+        "emozione",
     ],
     "additionalProperties": False,
 }
-
 
 CAMPI_TESTO = ("frase_1", "frase_2", "concetto")
 

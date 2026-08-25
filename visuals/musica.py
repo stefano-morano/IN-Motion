@@ -11,10 +11,15 @@ is chosen from a pre-rendered library per emotion (musica_libreria/Q2/*.wav).
 The personalized version, based on the user's actual story, is generated in the
 background as a take-away gift -- exactly like the high-resolution mandala.
 """
-import os, glob, random, threading, wave
+import os, glob, random, sys, threading, wave
 import numpy as np
 
-LIBRARY = "musica_libreria"
+# Ogni percorso e' ancorato a QUESTO file, non alla cartella da cui si lancia:
+# con un percorso relativo la libreria spariva a seconda di dove ti trovavi
+# col terminale, e la musica non partiva mai senza dire perche'.
+CARTELLA = os.path.dirname(os.path.abspath(__file__))
+LIBRARY = os.path.join(CARTELLA, "musica_libreria")
+MOTORE = os.path.join(os.path.dirname(CARTELLA), "music")
 SAMPLE_RATE = 44100
 
 
@@ -39,13 +44,22 @@ def generate_personalized(emotion, callback=None):
     story. Non-blocking, and not needed for THIS session's playback."""
     def work():
         try:
+            # il motore vive in music/, cartella sorella: senza questa riga
+            # l'import fallisce sempre e il regalo non viene mai generato
+            if MOTORE not in sys.path:
+                sys.path.insert(0, MOTORE)
             import session
             wav = session.run(emotion)
             print(f"  your personalized music: {wav}")
             if callback:
                 callback(wav)
+        except ImportError as e:
+            print(f"  personalized music not generated: music engine missing ({e})")
+            print(f"  expected in: {MOTORE}")
         except Exception as e:
             print(f"  personalized music not generated ({e})")
+            print("  the engine needs FluidSynth, the soundfont and the weights")
+            print("  -- see music/README.md. Playback is unaffected.")
     threading.Thread(target=work, daemon=True).start()
 
 

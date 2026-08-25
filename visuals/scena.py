@@ -5,7 +5,7 @@ Tre messaggi, sulla porta 8001:
   /prepara  "frase" "frase" ...        -> TD disegna le scritte e ne ricava le posizioni
   /mandala  petali anelli tonalita seed -> TD genera le posizioni del mandala
   /scena    tipo testo durata          -> TD parte con la transizione
-                                           (tipo = volto / testo / mandala)
+                                           (tipo = volto / testo / mandala / dissoluzione)
 
 Nessuna funzione qui aspetta: le attese sono compito della macchina a stati,
 perche' un'attesa dentro questo modulo bloccherebbe anche la webcam.
@@ -50,9 +50,19 @@ class Scena:
     def testo(self, frase, transizione=4.0):
         self.client.send_message("/scena", ["testo", frase, float(transizione)])
 
+    def dissolvi(self):
+        """Le particelle smettono di inseguire una forma e diventano materia
+        che il naso dell'utente puo' colpire. Non c'e' transizione: la
+        dissoluzione prende in consegna le particelle dove le trova."""
+        self.client.send_message("/scena", ["dissoluzione", "", 0.0])
+        print("  -> dissoluzione")
+
     def mostra(self, tipo, contenuto="", transizione=4.0):
         if tipo == "volto":
             self.volto(transizione)
+        elif tipo == "dissoluzione":
+            self.dissolvi()
+            return
         elif tipo == "mandala":
             self.client.send_message("/scena", ["mandala", "", float(transizione)])
         else:

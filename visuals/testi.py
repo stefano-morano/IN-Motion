@@ -43,6 +43,10 @@ RISERVA = {
     "mandala_petali": 6,
     "mandala_anelli": 3,
     "mandala_tonalita": 200.0,   # un blu-verde neutro
+    # Q2 (teso-agitato) e' il ripiego piu' sicuro: la sua musica va incontro
+    # all'energia di chi ascolta e poi la accompagna giu'. Se non sappiamo
+    # nulla della persona, e' il viaggio che funziona per piu' gente.
+    "emozione": "Q2",
 }
 
 ISTRUZIONI = """Sei la voce di un'installazione di meditazione. Una persona ti ha \
@@ -101,6 +105,10 @@ SCHEMA = {
                 "dovrebbe cambiare tono"
             ),
         },
+        # Niente minimum/maximum qui: gli output strutturati non li accettano
+        # (errore 400 "For 'integer' type, properties maximum, minimum are not
+        # supported"). I limiti sono scritti nelle istruzioni e, se il modello
+        # sfora lo stesso, li rimettiamo in riga noi con _entro_limiti().
         "mandala_petali": {
             "type": "integer",
             "description": "numero di petali del mandala, da 5 a 9",

@@ -38,6 +38,7 @@ import random
 import threading
 
 import mandala as modulo_mandala
+import movimento as modulo_movimento
 import occhi as modulo_occhi
 import scena as modulo_scena
 import testi
@@ -49,16 +50,21 @@ INVITO = ["QUANDO TI SENTI PRONTO", "CHIUDI GLI OCCHI E RACCONTAMI CIO CHE VUOI"
 ATTESA = ["PREPARO LA TUA MEDITAZIONE", "CONCENTRATI SUL TUO RESPIRO"]
 CHIUSURA = ["È IL MOMENTO DI MEDITARE", "CHIUDI GLI OCCHI QUANDO TI SENTI PRONTO"]
 ATTESA_MANDALA = ["STO DISEGNANDO IL TUO MANDALA"]
+INVITO_DISSOLUZIONE = ["MUOVI IL VOLTO E LIBERATI DEL MANDALA"]
+COMMIATO = ["NIENTE DI BELLO VA TRATTENUTO", "GRAZIE, A PRESTO"]
 
 # ---------- tempi (secondi) ----------
 # REGOLA: nessuna scritta resta a schermo meno di LEGGIBILE, e questo tempo si
 # conta DA QUANDO E' FORMATA, non da quando parte la transizione — durante la
 # transizione le particelle si stanno ancora disponendo e non c'e' niente da
 # leggere. Quindi ogni schermata dura: transizione + LEGGIBILE.
-LEGGIBILE = 6.0
+# MODALITA' PROVA: durante lo sviluppo aspettare sei secondi a scritta e' una
+# tortura. Rimettere a 6.0 (o piu') prima di mostrarlo a qualcuno: una frase
+# che si legge di corsa non da' il tempo di sentirla.
+LEGGIBILE = 2.0
 
-TRANSIZIONE = 4.0           # quanto dura il passaggio da una forma all'altra
-TRANSIZIONE_BREVE = 2.5     # per i cambi rapidi (blocchi d'attesa)
+TRANSIZIONE = 2.0           # quanto dura il passaggio da una forma all'altra (prova; era 4.0)
+TRANSIZIONE_BREVE = 1.5     # per i cambi rapidi (blocchi d'attesa) (prova; era 2.5)
 
 DURATA_SALUTO = TRANSIZIONE + LEGGIBILE
 DURATA_INVITO = TRANSIZIONE + LEGGIBILE   # tranne l'ultimo blocco: quello
@@ -68,13 +74,13 @@ DURATA_ATTESA = TRANSIZIONE_BREVE + LEGGIBILE
 MIN_ASCOLTO = 3.0           # sotto questa durata l'ascolto non puo' finire
 MAX_ATTESA_GESTO = 90.0     # se il gesto non arriva mai, si prosegue lo stesso
 
-PERMANENZA_VOLTO = 3.0      # il volto non e' da leggere: puo' durare meno
+PERMANENZA_VOLTO = 1.5      # il volto non e' da leggere: puo' durare meno
 PERMANENZA_FRASE = LEGGIBILE
 PERMANENZA_CONCETTO = LEGGIBILE + 2.0   # il concetto finale merita piu' respiro
 PERMANENZA_CHIUSURA = LEGGIBILE
 
 # ---------- fase 2: meditazione ----------
-MIN_MEDITAZIONE = 5.0       # una riapertura fulminea non puo' bastare a finirla
+MIN_MEDITAZIONE = 3.0       # una riapertura fulminea non puo' bastare a finirla
 MAX_MEDITAZIONE = 600.0     # rete di sicurezza per una presentazione (10 minuti)
 
 # ---------- fase 3: il mandala ----------
@@ -84,15 +90,25 @@ TRANSIZIONE_MANDALA = 6.0    # il mandala si compone piu' lentamente del resto:
 SECONDI_PER_LIVELLO = 40.0   # ogni tot secondi di meditazione, un livello di dettaglio in piu'
 BONUS_MASSIMO = 3            # tetto ai livelli: oltre, il disegno si affolla
                              # e si legge peggio invece che meglio
-PERMANENZA_MANDALA = 40.0    # quanto resta a schermo alla fine della sessione
+PERMANENZA_MANDALA = 12.0    # quanto lo si contempla prima di lasciarlo andare (prova; era 40.0)
+
+# ---------- la dissoluzione ----------
+DURATA_INVITO_DISSOLUZIONE = TRANSIZIONE + LEGGIBILE
+RITORNO_MANDALA = 3.0        # il mandala ricompare, e c'e' un attimo per
+                             # vederlo intero prima di poterlo disfare
+MAX_DISSOLUZIONE = 60.0      # se non scuote mai, si prosegue lo stesso
+TRANSIZIONE_LUNGA = 6.0      # per il commiato: le particelle sono sparse fuori
+                             # campo e devono rientrare per comporre le parole
+PERMANENZA_COMMIATO = LEGGIBILE
 
 
 class Esperienza:
-    def __init__(self, scena: modulo_scena.Scena, racconto: str, ascolto=None):
+    def __init__(self, scena: modulo_scena.Scena, racconto: str, ascolto=None, musica=None):
         self.scena = scena
         self.racconto = racconto      # ripiego se il microfono non c'e' o non sente
         self.ascolto = ascolto
         self.occhi = modulo_occhi.Rilevatore()
+        self.movimento = modulo_movimento.Movimento()
         self._generazione_avviata = False
 
         self.stato = None
@@ -110,13 +126,16 @@ class Esperienza:
         self.copione = []
         self.indice = 0
 
-        self.musica = modulo_musica.Music()
-        self.emozione = "Q2" #default
+        # come l'ascolto: si puo' passare dall'esterno, cosi' l'esperienza
+        # si prova senza far davvero partire l'audio
+        self.musica = musica if musica is not None else modulo_musica.Music()
+        self.emozione = "Q2"   # ripiego se la generazione non risponde
 
     # ---------- avvio ----------
 
     def avvia(self, ora):
-        self.scena.prepara(SALUTO + INVITO + ATTESA + ATTESA_MANDALA + CHIUSURA)
+        self.scena.prepara(SALUTO + INVITO + ATTESA + ATTESA_MANDALA
+                           + INVITO_DISSOLUZIONE + COMMIATO + CHIUSURA)
         self._vai("saluto", ora)
         self._mostra_blocco(SALUTO, 0, ora)
 
@@ -234,10 +253,41 @@ class Esperienza:
                 self.scena.mostra("mandala", transizione=TRANSIZIONE_MANDALA)
 
         elif self.stato == "mandala":
+            # lo si contempla, poi lo si lascia andare: e' il rito che vuole
+            # cosi', l'attaccamento anche a cio' che e' bello produce sofferenza
             if trascorso >= PERMANENZA_MANDALA:
-                self.stato = "fine"
-                self.finita = True
-                print("esperienza: conclusa")
+                self._vai("invito_dissoluzione", ora)
+                self._mostra_blocco(INVITO_DISSOLUZIONE, 0, ora)
+
+        elif self.stato == "invito_dissoluzione":
+            if trascorso >= DURATA_INVITO_DISSOLUZIONE:
+                # il mandala torna: bisogna rivederlo intero prima di disfarlo
+                self._vai("ritorno_mandala", ora)
+                self.scena.mostra("mandala", transizione=TRANSIZIONE)
+
+        elif self.stato == "ritorno_mandala":
+            if trascorso >= TRANSIZIONE + RITORNO_MANDALA:
+                self._vai("dissoluzione", ora)
+                self.movimento.azzera()
+                self.scena.mostra("dissoluzione")
+                print("dissoluzione: muovi il volto per disperderlo")
+
+        elif self.stato == "dissoluzione":
+            self.movimento.aggiorna(punti, ora)
+            if self.movimento.abbastanza() or trascorso >= MAX_DISSOLUZIONE:
+                print(f"  disperso (energia del gesto: {self.movimento.energia:.1f})")
+                self._vai("commiato", ora)
+                self._mostra_blocco(COMMIATO, 0, ora, transizione=TRANSIZIONE_LUNGA)
+
+        elif self.stato == "commiato":
+            durata = (TRANSIZIONE_LUNGA if self._indice_blocco == 0 else TRANSIZIONE)
+            if ora - self._t_blocco >= durata + PERMANENZA_COMMIATO:
+                if self._indice_blocco + 1 < len(COMMIATO):
+                    self._mostra_blocco(COMMIATO, self._indice_blocco + 1, ora)
+                else:
+                    self.stato = "fine"
+                    self.finita = True
+                    print("esperienza: conclusa")
 
     # ---------- interno ----------
 

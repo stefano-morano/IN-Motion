@@ -89,6 +89,33 @@ MANDALA_NEBBIA = 0.3         # la nebbia che va bene per volto e testo qui
                              # cancellerebbe il disegno: il mandala e' l'unica
                              # forma che deve leggersi nitida, non suggerita
 
+# ---------- dissoluzione ----------
+# L'ultima scena. Il mandala NON si ferma: continua a ruotare, galleggiare e
+# respirare come ha sempre fatto, e ogni particella continua a inseguire il
+# proprio posto con la propria inerzia.
+#
+# Cambia una cosa sola: il naso diventa una calamita che respinge. Le
+# particelle che entrano nel suo raggio d'azione ricevono una spinta e si
+# LIBERANO — smettono di inseguire il mandala e volano via per conto loro,
+# ognuna con la velocita' che ha ricevuto. Non tornano indietro, e non perche'
+# glielo impedisca una forza apposta: semplicemente non hanno piu' un posto a
+# cui tornare. E' li' che sta l'irreversibilita' del gesto.
+NASO = 4                     # punta del naso: il punto piu' sporgente dei 478
+RAGGIO_NASO = 0.38           # entro quanto la calamita fa effetto. Fuori di qui
+                             # le particelle non si accorgono di nulla, ed e'
+                             # cio' che rende il gesto una spinta mirata invece
+                             # di un soffio uniforme su tutto.
+FORZA_NASO = 3.00            # quanto schizzano via, a parita' di velocita' del naso
+VELOCITA_LIBERAZIONE = 0.25  # oltre questa velocita' propria una particella e'
+                             # libera del tutto e non insegue piu' il mandala
+SPINTA_Z = 0.30              # quanto della spinta va in profondita'. Tenuta
+                             # bassa: a piena forza qualche particella schizza
+                             # verso l'osservatore e diventa un quadrone enorme,
+                             # che sembra un difetto invece che un effetto.
+ATTRITO_FUGA = 0.999         # quasi nessuno: chi e' partito continua ad andare
+SOGLIA_MOVIMENTO = 0.20      # sotto questa velocita' del naso e' respiro e
+                             # imprecisione del tracciamento, non volonta'
+
 DURATA_TRANSIZIONE = 4.0  # secondi per passare da una forma all'altra
 RITARDO_MAX = 0.7         # 0 = tutte le particelle partono insieme,
                           # 1 = molto sfalsate (l'effetto e' un'onda)
@@ -421,6 +448,13 @@ def prepara_mandala_in_coda():
 def vai_a(tipo, testo='', durata=None):
     """Fa partire la transizione verso una nuova forma.
     E' il comando che Python manda via OSC."""
+    if tipo == 'dissoluzione':
+        # si parte da ferme, da dove sono adesso: nessuna transizione, la
+        # dissoluzione prende in consegna le particelle dove le trova
+        _c['fuga'] = None
+        _c['libera'] = None
+        _c['naso_prec'] = None
+        _c['t_diss'] = None
     _c['scena_da'] = _c.get('scena_a', ('volto', ''))
     _c['scena_a'] = (tipo, testo)
     _c['t0'] = absTime.seconds
@@ -435,10 +469,27 @@ def _forma_volto(P):
             + P[_c['c']] * w[:, 2:3])
 
 
-def _forma(scena, P, n, ora):
+def _forma(scena, P, n, ora, sorgente=False):
     """Le posizioni-bersaglio di una scena. Se una scritta o il mandala non
-    sono stati preparati, ripiega sul volto invece di rompere l'animazione."""
+    sono stati preparati, ripiega sul volto invece di rompere l'animazione.
+
+    sorgente=True quando e' la forma da cui si VIENE, non quella verso cui si
+    va: per la dissoluzione le due cose sono diverse, vedi sotto."""
     tipo = scena[0]
+    if tipo == 'dissoluzione':
+        if sorgente:
+            # Si viene DA una dissoluzione: le particelle stanno sparse dove
+            # le ha lasciate il gesto, e la fusione verso la scritta finale
+            # deve partire DA LI'. Rispondendo "il mandala" si ricomponeva
+            # tutto per una frazione di secondo prima di andare alle parole —
+            # esattamente cio' che il gesto aveva appena disfatto.
+            pos = _c.get('posizioni')
+            if pos is not None and pos.shape[0] == n:
+                return pos
+            return _forma_volto(P)
+        # Ci si va: il bersaglio resta il mandala, che continua a ruotare.
+        # Sono le particelle liberate a smettere di inseguirlo.
+        tipo = 'mandala'
     if tipo == 'mandala':
         if _c.get('mandala_raggi') is None or _c['mandala_raggi'].shape[0] != n:
             return _forma_volto(P)
@@ -454,7 +505,8 @@ def _palette(tipo):
     """Le due tinte fra cui pesca ogni particella. Volto e testo restano sul
     blu di sempre; il mandala prende la tonalita' scelta da Claude, declinata
     in una versione profonda e una luminosa della stessa tinta."""
-    if tipo != 'mandala' or 'mandala_tonalita' not in _c:
+    # la dissoluzione e' il mandala che si disfa: tiene il suo colore
+    if tipo not in ('mandala', 'dissoluzione') or 'mandala_tonalita' not in _c:
         return PALETTE_CALMA['fondo'], PALETTE_CALMA['luce']
 
     # I valori restano bassi come nella palette blu: sono la luce di UNA
@@ -497,6 +549,68 @@ def _colori(tipo_da, tipo_a, avanzamento, pos, ora):
     fondo = np.array(fondo, dtype='float32')
     luce = np.array(luce, dtype='float32')
     return fondo + (luce - fondo) * t
+
+
+def _fuga(pos, bersaglio, P, ora):
+    """Il passo di posizione durante la dissoluzione.
+
+    Ogni particella continua a inseguire il proprio posto nel mandala — che
+    intanto ruota e galleggia come sempre — con la propria inerzia. Ma se il
+    naso le passa vicino riceve una spinta, e quella spinta la libera: piu' e'
+    veloce, meno insegue e piu' vola per conto suo.
+
+    La liberazione non e' un interruttore ma una misura: si ricava dalla
+    velocita' che la particella si porta dietro. Chi ha preso una botta piena
+    e' libero del tutto, chi e' stato sfiorato insegue ancora un po'. E' questo
+    che fa disperdere la nuvola a pezzi irregolari invece che tutta insieme."""
+    fuga = _c.get('fuga')
+    if fuga is None or fuga.shape != pos.shape:
+        fuga = np.zeros_like(pos)
+
+    precedente = _c.get('t_diss')
+    dt = 0.016 if precedente is None else min(max(ora - precedente, 1.0 / 240), 0.1)
+    _c['t_diss'] = ora
+
+    # .copy(): P[NASO] e' una VISTA sulla memoria dell'array. Conservarla
+    # significherebbe confrontare il naso con se stesso al fotogramma dopo.
+    naso = np.array(P[NASO], dtype='float32')
+    naso_prec = _c.get('naso_prec')
+    _c['naso_prec'] = naso
+    velocita_naso = 0.0 if naso_prec is None else float(np.linalg.norm(naso - naso_prec)) / dt
+    velocita_naso = max(0.0, velocita_naso - SOGLIA_MOVIMENTO)
+
+    if velocita_naso > 0.0:
+        # la calamita: respinge solo dentro il suo raggio, e sempre meno man
+        # mano che ci si allontana dal centro, fino ad annullarsi sul bordo
+        d = pos - naso
+        distanza = np.sqrt((d * d).sum(axis=1)) + 1e-5
+        dentro = distanza < RAGGIO_NASO
+        if dentro.any():
+            vicinanza = 1.0 - distanza[dentro] / RAGGIO_NASO
+            spinta = (FORZA_NASO * velocita_naso) * vicinanza * vicinanza
+            direzione = d[dentro] / distanza[dentro, None]
+            direzione[:, 2] *= SPINTA_Z      # la dispersione resta sul piano
+            fuga[dentro] += direzione * spinta[:, None] * dt
+
+    fuga *= ATTRITO_FUGA
+    _c['fuga'] = fuga
+
+    # Quanto una particella si e' staccata: 0 = insegue ancora il mandala,
+    # 1 = se n'e' andata e non lo insegue piu'.
+    #
+    # Il valore puo' solo CRESCERE. E' la differenza fra un gesto che libera e
+    # uno che sposta soltanto: senza il cricchetto la velocita' di fuga si
+    # smorzava, la particella tornava sotto soglia e ricominciava a inseguire
+    # il mandala — l'85% risultava liberato e non ne usciva una.
+    adesso = np.clip(np.linalg.norm(fuga, axis=1) / VELOCITA_LIBERAZIONE, 0.0, 1.0)
+    precedente_libera = _c.get('libera')
+    if precedente_libera is None or precedente_libera.shape != adesso.shape:
+        precedente_libera = np.zeros_like(adesso)
+    libera = np.maximum(precedente_libera, adesso)
+    _c['libera'] = libera
+    libera = libera[:, None]
+
+    return pos + (bersaglio - pos) * _c['inerzia'] * (1.0 - libera) + fuga * dt
 
 
 def _stato_danza(ora):
@@ -546,7 +660,7 @@ def onCook(scriptOp):
     fioritura = None
 
     if da_scena != a_scena and avanzamento < 1.0:
-        da = _forma(da_scena, P, n_part, ora)
+        da = _forma(da_scena, P, n_part, ora, sorgente=True)
 
         # ogni particella ha il suo ritardo: la transizione attraversa la
         # forma come un'onda invece di spostare tutto in blocco
@@ -594,6 +708,8 @@ def onCook(scriptOp):
     pos = _c['posizioni']
     if pos is None or pos.shape != bersaglio.shape:
         pos = bersaglio.copy()
+    elif a_scena[0] == 'dissoluzione':
+        pos = _fuga(pos, bersaglio, P, ora)
     else:
         pos += (bersaglio - pos) * _c['inerzia']
     _c['posizioni'] = pos

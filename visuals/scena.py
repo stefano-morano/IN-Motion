@@ -50,11 +50,14 @@ class Scena:
     def testo(self, frase, transizione=4.0):
         self.client.send_message("/scena", ["testo", frase, float(transizione)])
 
-    def dissolvi(self):
+    def dissolvi(self, transizione=0.0):
         """Le particelle smettono di inseguire una forma e diventano materia
-        che il naso dell'utente puo' colpire. Non c'e' transizione: la
-        dissoluzione prende in consegna le particelle dove le trova."""
-        self.client.send_message("/scena", ["dissoluzione", "", 0.0])
+        che il naso dell'utente puo' colpire.
+
+        Con una transizione, le particelle si ricompongono nel mandala mentre
+        la dissoluzione e' GIA' attiva: si puo' spingerle via fin dal primo
+        istante, invece di aspettare che la forma sia completa."""
+        self.client.send_message("/scena", ["dissoluzione", "", float(transizione)])
         print("  -> dissoluzione")
 
     def mostra(self, tipo, contenuto="", transizione=4.0):

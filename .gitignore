@@ -14,3 +14,6 @@ visuals/mandala/
 # senza percorso esplicito: sono duplicati, il progetto vero e' visual_TD.toe
 visuals/visual_TD.[0-9].toe
 visuals/visual_TD.[0-9][0-9].toe
+
+# i backup automatici di TouchDesigner: utili sul disco, inutili su git
+visuals/Backup/

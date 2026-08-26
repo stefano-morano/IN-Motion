@@ -13,7 +13,6 @@ disegnarla qui vuol dire che l'immagine si genera anche se TD non e' aperto.
 """
 
 import colorsys
-import math
 import os
 from datetime import datetime
 

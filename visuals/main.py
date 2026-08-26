@@ -77,6 +77,9 @@ def main():
     except KeyboardInterrupt:
         print("\ninterrotto da tastiera")
     finally:
+        # anche se si interrompe a meta': un flusso audio aperto
+        # sopravviverebbe al programma
+        esperienza.ferma_suono()   # chiude anche il microfono
         volto.chiudi()
         print("fermato.")
 

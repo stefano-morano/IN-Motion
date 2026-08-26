@@ -26,6 +26,11 @@ DIMENSIONE_MODELLO = "small"
 
 DURATA_MINIMA = 0.7      # sotto questa soglia non c'e' niente da trascrivere
 
+# Un blocco generoso da' respiro alla scheda audio: mentre Whisper trascrive
+# la CPU e' satura, e con blocchi piccoli il flusso resta a secco — che si
+# sente come un crepitio.
+BLOCCO = 2048
+
 
 class Ascolto:
     """Registra a comando e trascrive quando gli si dice di smettere."""
@@ -44,38 +49,50 @@ class Ascolto:
 
     # ---------- registrazione ----------
 
-    def inizia(self):
-        """Comincia a registrare. Non solleva eccezioni: se il microfono non e'
-        disponibile lo dice e il sistema prosegue senza."""
-        self._pezzi = []
-        self._testo = None
+    def apri(self):
+        """Apre il microfono, se non lo e' gia'.
+
+        Il flusso resta aperto per TUTTA la sessione, anche quando non stiamo
+        registrando: aprirlo e chiuderlo mentre la musica suona fa
+        riconfigurare la scheda audio, e si sente come un click. Quello che si
+        accende e si spegne e' solo un interruttore: il callback gira sempre,
+        ma tiene i campioni soltanto quando serve."""
+        if self._stream is not None:
+            return True
 
         def raccogli(dati, fotogrammi, tempo, stato):
-            self._pezzi.append(dati.copy())
+            if self.attivo:
+                self._pezzi.append(dati.copy())
 
         try:
             self._stream = sd.InputStream(
-                samplerate=FREQUENZA, channels=1, dtype="float32", callback=raccogli
+                samplerate=FREQUENZA, channels=1, dtype="float32",
+                blocksize=BLOCCO, latency="high", callback=raccogli
             )
             self._stream.start()
-            self.attivo = True
-            print("ascolto: registro")
+            return True
         except Exception as errore:
             print(f"ascolto: microfono non disponibile ({errore})")
             self._stream = None
+            return False
+
+    def inizia(self):
+        """Comincia a tenere i campioni. Non solleva eccezioni: se il microfono
+        non e' disponibile lo dice e il sistema prosegue senza."""
+        self._pezzi = []
+        self._testo = None
+        if not self.apri():
             self.attivo = False
             self._testo = ""
+            return
+        self.attivo = True
+        print("ascolto: registro")
 
     def ferma(self):
         """Chiude la registrazione e avvia la trascrizione in background."""
         if not self.attivo:
             return
-        self.attivo = False
-
-        if self._stream is not None:
-            self._stream.stop()
-            self._stream.close()
-            self._stream = None
+        self.attivo = False      # il flusso resta aperto: chiuderlo farebbe click
 
         audio = (
             np.concatenate(self._pezzi).flatten()
@@ -102,6 +119,17 @@ class Ascolto:
         except Exception as errore:
             print(f"ascolto: trascrizione fallita ({errore})")
             self._testo = ""
+
+    def chiudi(self):
+        """Chiude il microfono. Da chiamare una volta sola, a fine sessione."""
+        if self._stream is None:
+            return
+        try:
+            self._stream.stop()
+            self._stream.close()
+        except Exception:
+            pass
+        self._stream = None
 
     def risultato(self):
         """Il testo trascritto, oppure None se sta ancora lavorando."""

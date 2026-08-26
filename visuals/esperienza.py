@@ -79,6 +79,20 @@ PERMANENZA_FRASE = LEGGIBILE
 PERMANENZA_CONCETTO = LEGGIBILE + 2.0   # il concetto finale merita piu' respiro
 PERMANENZA_CHIUSURA = LEGGIBILE
 
+# ---------- il tappeto sonoro ----------
+# Un sottofondo che accompagna tutta l'esperienza, tranne la meditazione: li'
+# tace e lascia il campo alla traccia costruita sull'emozione di chi ascolta.
+# E' materiale dello stesso motore musicale, preso dal quadrante della calma —
+# la destinazione verso cui ogni sessione tende comunque.
+EMOZIONE_TAPPETO = "Q4"
+DISSOLVENZA_TAPPETO = 4.0    # quanto ci mette a cambiare volume
+
+VOLUME_APERTURA = 0.70       # saluto e invito
+VOLUME_ASCOLTO = 0.30        # mentre la persona parla: si fa da parte
+VOLUME_PREPARAZIONE = 0.70   # attesa, frasi personalizzate, danza
+VOLUME_MEDITAZIONE = 0.00    # tace del tutto: parla la traccia generata
+VOLUME_FINALE = 0.70         # mandala, dissoluzione, commiato
+
 # ---------- fase 2: meditazione ----------
 MIN_MEDITAZIONE = 3.0       # una riapertura fulminea non puo' bastare a finirla
 MAX_MEDITAZIONE = 600.0     # rete di sicurezza per una presentazione (10 minuti)
@@ -94,8 +108,6 @@ PERMANENZA_MANDALA = 12.0    # quanto lo si contempla prima di lasciarlo andare 
 
 # ---------- la dissoluzione ----------
 DURATA_INVITO_DISSOLUZIONE = TRANSIZIONE + LEGGIBILE
-RITORNO_MANDALA = 3.0        # il mandala ricompare, e c'e' un attimo per
-                             # vederlo intero prima di poterlo disfare
 MAX_DISSOLUZIONE = 60.0      # se non scuote mai, si prosegue lo stesso
 TRANSIZIONE_LUNGA = 6.0      # per il commiato: le particelle sono sparse fuori
                              # campo e devono rientrare per comporre le parole
@@ -103,7 +115,8 @@ PERMANENZA_COMMIATO = LEGGIBILE
 
 
 class Esperienza:
-    def __init__(self, scena: modulo_scena.Scena, racconto: str, ascolto=None, musica=None):
+    def __init__(self, scena: modulo_scena.Scena, racconto: str, ascolto=None,
+                 musica=None, tappeto=None):
         self.scena = scena
         self.racconto = racconto      # ripiego se il microfono non c'e' o non sente
         self.ascolto = ascolto
@@ -129,6 +142,9 @@ class Esperienza:
         # come l'ascolto: si puo' passare dall'esterno, cosi' l'esperienza
         # si prova senza far davvero partire l'audio
         self.musica = musica if musica is not None else modulo_musica.Music()
+        # due sorgenti separate: il tappeto e la traccia della meditazione
+        # vivono e sfumano in modo indipendente
+        self.tappeto = tappeto if tappeto is not None else modulo_musica.Music()
         self.emozione = "Q2"   # ripiego se la generazione non risponde
 
     # ---------- avvio ----------
@@ -138,6 +154,16 @@ class Esperienza:
                            + INVITO_DISSOLUZIONE + COMMIATO + CHIUSURA)
         self._vai("saluto", ora)
         self._mostra_blocco(SALUTO, 0, ora)
+        self.tappeto.play(EMOZIONE_TAPPETO, fade=DISSOLVENZA_TAPPETO,
+                          volume=VOLUME_APERTURA, morbido=True)
+        # anche il flusso della traccia si apre ADESSO, muto e senza nulla da
+        # suonare: aprirlo piu' tardi, mentre il tappeto suona, farebbe
+        # riconfigurare la scheda audio e si sentirebbe un click
+        self.musica.apri()
+        # e anche il microfono: aprirlo piu' tardi, quando la persona chiude
+        # gli occhi, faceva click mentre il tappeto suonava
+        if self.ascolto:
+            self.ascolto.apri()
 
     # ---------- il ciclo lo chiama ad ogni fotogramma ----------
 
@@ -170,6 +196,10 @@ class Esperienza:
             if stato_occhi == "chiusi" or trascorso >= MAX_ATTESA_GESTO:
                 self._vai("ascolto", ora)
                 self.scena.mostra("volto", transizione=TRANSIZIONE)
+                # il tappeto si abbassa PRIMA di accendere il microfono: cio'
+                # che suona in stanza finisce nella registrazione insieme alla
+                # voce, e Whisper deve sentire lei, non la musica
+                self.tappeto.volume(VOLUME_ASCOLTO, fade=1.5)
                 if self.ascolto:
                     self.ascolto.inizia()
 
@@ -178,6 +208,7 @@ class Esperienza:
             if (stato_occhi == "aperti" and pronto_a_finire) or trascorso >= MAX_ATTESA_GESTO:
                 if self.ascolto:
                     self.ascolto.ferma()
+                self.tappeto.volume(VOLUME_PREPARAZIONE, fade=DISSOLVENZA_TAPPETO)
                 self._vai("attesa", ora)
                 self._mostra_blocco(ATTESA, 0, ora, TRANSIZIONE_BREVE)
                 if not self.ascolto:
@@ -231,6 +262,7 @@ class Esperienza:
             if stato_occhi == "chiusi" or trascorso >= MAX_ATTESA_GESTO:
                 self._vai("meditazione", ora)
                 self.scena.mostra("volto", transizione=TRANSIZIONE)
+                self.tappeto.volume(VOLUME_MEDITAZIONE, fade=6.0)
                 self.musica.play(self.emozione, fade=6.0)
 
         elif self.stato == "meditazione":
@@ -241,6 +273,7 @@ class Esperienza:
                 self._mostra_blocco(ATTESA_MANDALA, 0, ora, TRANSIZIONE_BREVE)
                 self._invia_mandala()
                 self.musica.fade_out(6.0)
+                self.tappeto.volume(VOLUME_FINALE, fade=6.0)
 
         elif self.stato == "preparazione_mandala":
             if len(ATTESA_MANDALA) > 1 and (ora - self._t_blocco) >= DURATA_ATTESA_MANDALA:
@@ -261,15 +294,14 @@ class Esperienza:
 
         elif self.stato == "invito_dissoluzione":
             if trascorso >= DURATA_INVITO_DISSOLUZIONE:
-                # il mandala torna: bisogna rivederlo intero prima di disfarlo
-                self._vai("ritorno_mandala", ora)
-                self.scena.mostra("mandala", transizione=TRANSIZIONE)
-
-        elif self.stato == "ritorno_mandala":
-            if trascorso >= TRANSIZIONE + RITORNO_MANDALA:
+                # Il mandala torna ED E' GIA' DISFACIBILE: la dissoluzione
+                # parte insieme alla sua ricomparsa, non dopo. Le particelle
+                # si ricompongono mentre il naso puo' gia' spingerle via —
+                # aspettare che la forma fosse completa creava qualche secondo
+                # in cui il gesto non produceva nulla, e sembrava rotto.
                 self._vai("dissoluzione", ora)
                 self.movimento.azzera()
-                self.scena.mostra("dissoluzione")
+                self.scena.dissolvi(transizione=TRANSIZIONE)
                 print("dissoluzione: muovi il volto per disperderlo")
 
         elif self.stato == "dissoluzione":
@@ -287,9 +319,24 @@ class Esperienza:
                 else:
                     self.stato = "fine"
                     self.finita = True
+                    self.ferma_suono()
                     print("esperienza: conclusa")
 
     # ---------- interno ----------
+
+    def ferma_suono(self):
+        """Spegne tappeto e traccia. Da chiamare anche se la sessione viene
+        interrotta a meta': un flusso audio aperto sopravvive al programma."""
+        for sorgente in (self.tappeto, self.musica):
+            try:
+                sorgente.stop()
+            except Exception:
+                pass
+        if self.ascolto:
+            try:
+                self.ascolto.chiudi()
+            except Exception:
+                pass
 
     def _vai(self, stato, ora):
         self.stato = stato

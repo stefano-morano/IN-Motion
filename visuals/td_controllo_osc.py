@@ -21,6 +21,20 @@ Tre messaggi:
   /scena  tipo  testo  durata
       Fa partire la transizione. tipo = 'volto', 'testo' oppure 'mandala'.
 
+  /finestra  1|0
+      Apre (1) o chiude (0) la finestra di uscita a schermo intero, cioe' il
+      TOP finale mostrato senza l'editor intorno.
+
+  /azzera
+      Riporta la scena all'inizio, senza transizione. Lo manda main.py appena
+      parte, perche' TD si ricorda l'ultima schermata della sessione prima.
+
+  /buio
+  /accendi  durata
+      Schermo nero, e risalita dal nero in 'durata' secondi. E' la
+      dissolvenza d'apertura: la finestra si apre gia' nera, poi l'immagine
+      sale.
+
 La preparazione non viene eseguita qui dentro ma rimandata di un fotogramma:
 far cuocere un nodo dentro una callback e' il tipo di operazione che ha gia'
 fatto crashare TouchDesigner una volta.
@@ -47,5 +61,26 @@ def onReceiveOSC(dat, rowIndex, message, byteData, timeStamp, address, args, pee
         testo = str(args[1]) if len(args) > 1 else ''
         durata = float(args[2]) if len(args) > 2 else None
         regia.vai_a(tipo, testo, durata)
+
+    elif address == '/azzera':
+        regia.AUTOMATICO = False
+        regia.azzera()
+
+    elif address == '/buio':
+        regia.buio()
+
+    elif address == '/accendi':
+        if args:
+            regia.accendi(float(args[0]))
+        else:
+            regia.accendi()
+
+    elif address == '/finestra':
+        # apre o chiude la finestra di uscita a schermo intero.
+        # Come per /prepara: non si tocca una finestra dentro una callback,
+        # si rimanda di un fotogramma.
+        apri = bool(args[0]) if args else True
+        comando = 'winopen' if apri else 'winclose'
+        run("op('/perform').par.%s.pulse()" % comando, delayFrames=1)
 
     return

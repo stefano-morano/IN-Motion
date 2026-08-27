@@ -137,44 +137,132 @@ def _pick_file(emotion, library=LIBRARY, piu_rada=False):
     return random.choice(files)
 
 
+class _Rampa:
+    """Un valore che scivola verso un obiettivo, contato in CAMPIONI.
+
+    Dentro il callback audio l'orologio di sistema non serve a niente: quello
+    che conta e' quanti campioni stai riempiendo. Una rampa contata in
+    campioni dura sempre lo stesso tempo, qualunque cosa stia facendo il resto
+    del programma — ed e' il motivo per cui le dissolvenze non scattano nemmeno
+    mentre Whisper satura la CPU per qualche secondo.
+
+    Sta qui come classe a se' perche' ne servono DUE per sorgente, con vite
+    completamente separate: vedi Music."""
+
+    def __init__(self, valore=0.0):
+        self.valore = float(valore)
+        self.obiettivo = float(valore)
+        self.passo = 0.0
+
+    def vai_a(self, obiettivo, secondi, sr=SAMPLE_RATE):
+        self.obiettivo = float(obiettivo)
+        if secondi > 0:
+            self.passo = (self.obiettivo - self.valore) / (secondi * sr)
+        else:
+            self.valore, self.passo = self.obiettivo, 0.0
+
+    def salta_a(self, valore):
+        """Senza rampa. Solo per far ripartire una traccia da zero."""
+        self.valore = self.obiettivo = float(valore)
+        self.passo = 0.0
+
+    def blocco(self, frames):
+        """I guadagni per i prossimi 'frames' campioni. Avanza la rampa."""
+        if self.passo == 0.0:
+            return np.full(frames, self.valore, dtype=np.float32)
+        g = self.valore + self.passo * np.arange(1, frames + 1)
+        basso, alto = sorted((self.valore, self.obiettivo))
+        g = np.clip(g, basso, alto).astype(np.float32)
+        self.valore = float(g[-1])
+        if abs(self.valore - self.obiettivo) < 1e-4:
+            self.valore, self.passo = self.obiettivo, 0.0
+        return g
+
+
 class Music:
+    """Una sorgente sonora: una traccia in loop, con due controlli separati.
+
+    VOLUME e ATTENUAZIONE sono due numeri distinti che si moltiplicano fra
+    loro, e la ragione e' che rispondono a due domande diverse:
+
+        volume       quanto forte va questa musica in questa scena?
+                     lo decide la macchina a stati
+        attenuazione quanto la stiamo abbassando in questo momento per far
+                     posto a qualcos'altro? lo decide lo stacco
+
+    Con un solo numero i due si sovrascriverebbero a vicenda: lo stacco
+    riporterebbe su una musica che la scena voleva muta, o la scena
+    cancellerebbe un abbassamento a meta'. Tenendoli separati ognuno dei due
+    puo' muoversi quando vuole senza sapere nulla dell'altro."""
+
     def __init__(self, library=LIBRARY):
         self.library = library
         self._stream = None
         self._data = None
         self._pos = 0
         self._loop = True
-        self._gain = 0.0
-        self._gain_target = 0.0
-        self._gain_step = 0.0          # per-frame ramp (fade)
+        self._volume = _Rampa(0.0)         # quanto forte va in questa scena
+        self._attenuazione = _Rampa(1.0)   # quanto la stiamo abbassando ora
+        # un suono breve sovrapposto alla musica (la campanella degli occhi):
+        # niente flusso in piu', si somma dentro questo
+        self._campione = None
+        self._campione_pos = 0
         self._lock = threading.Lock()
 
     def _callback(self, outdata, frames, time_info, status):
         with self._lock:
+            # le due rampe avanzano SEMPRE, anche quando non c'e' niente da
+            # suonare: se si fermassero, una dissolvenza chiesta su una
+            # sorgente muta resterebbe congelata a meta' per sempre
+            g = self._volume.blocco(frames) * self._attenuazione.blocco(frames)
+
             if self._data is None:
-                outdata.fill(0); return
-            out = np.empty((frames, 2), dtype=np.float32)
-            filled = 0
-            while filled < frames:
-                take = min(frames - filled, len(self._data) - self._pos)
-                out[filled:filled + take] = self._data[self._pos:self._pos + take]
-                self._pos += take; filled += take
-                if self._pos >= len(self._data):
-                    if self._loop:
-                        self._pos = 0
-                    else:
-                        out[filled:].fill(0); break
-            # gain ramp (fade in/out)
-            if self._gain_step != 0.0:
-                g = self._gain + self._gain_step * np.arange(1, frames + 1)
-                lo, hi = sorted((self._gain, self._gain_target))
-                g = np.clip(g, lo, hi).astype(np.float32)
-                self._gain = float(g[-1])
-                if abs(self._gain - self._gain_target) < 1e-4:
-                    self._gain, self._gain_step = self._gain_target, 0.0
+                outdata.fill(0)
             else:
-                g = np.full(frames, self._gain, dtype=np.float32)
-            outdata[:] = out * g[:, None]
+                out = np.empty((frames, 2), dtype=np.float32)
+                filled = 0
+                while filled < frames:
+                    take = min(frames - filled, len(self._data) - self._pos)
+                    out[filled:filled + take] = self._data[self._pos:self._pos + take]
+                    self._pos += take; filled += take
+                    if self._pos >= len(self._data):
+                        if self._loop:
+                            self._pos = 0
+                        else:
+                            out[filled:].fill(0); break
+                outdata[:] = out * g[:, None]
+
+            self._mixa_campione(outdata, frames)
+
+    def _mixa_campione(self, outdata, frames):
+        """Somma il suono breve sopra la musica. Da chiamare col lock preso.
+
+        Si somma DOPO volume e attenuazione, non prima. E' il punto di tutto
+        lo stacco: quando la musica e' stata portata a zero per far posto,
+        la campana deve restare — altrimenti abbassare la musica spegnerebbe
+        anche il suono a cui stiamo facendo spazio."""
+        if self._campione is None:
+            return
+        n = min(frames, len(self._campione) - self._campione_pos)
+        outdata[:n] += self._campione[self._campione_pos:self._campione_pos + n]
+        self._campione_pos += n
+        if self._campione_pos >= len(self._campione):
+            self._campione = None
+        # musica e campanella insieme non arrivano a 1.0, ma se un giorno
+        # qualcuno alzasse i volumi un tetto costa niente e salva da un
+        # rumore molto sgradevole
+        np.clip(outdata, -1.0, 1.0, out=outdata)
+
+    def suona_campione(self, campione):
+        """Fa partire un suono breve sopra la musica, da subito.
+
+        Se ne stava gia' suonando uno riparte dall'inizio invece di
+        sovrapporsi: due campanelle insieme suonerebbero come un errore."""
+        if campione is None:
+            return
+        with self._lock:
+            self._campione = campione
+            self._campione_pos = 0
 
     def play(self, emotion, fade=3.0, loop=True, volume=1.0, morbido=False):
         """morbido=True e' la voce del tappeto: piu' grave, piu' rada, con
@@ -189,9 +277,11 @@ class Music:
             data = _rendi_ciclabile(data, sr)
         with self._lock:
             self._data, self._pos, self._loop = data, 0, loop
-            self._gain = 0.0 if fade > 0 else volume
-            self._gain_target = float(volume)
-            self._gain_step = (float(volume) / (fade * sr)) if fade > 0 else 0.0
+            if fade > 0:
+                self._volume.salta_a(0.0)
+                self._volume.vai_a(volume, fade, sr)
+            else:
+                self._volume.salta_a(volume)
         if not self.apri(sr):
             return None
         print(f"music: {os.path.basename(path)} ({emotion})"
@@ -220,18 +310,24 @@ class Music:
             return False
 
     def volume(self, livello, fade=2.0):
-        """Porta il volume a un livello qualsiasi, con una rampa.
+        """Quanto forte va questa musica nella scena in corso.
 
         E' cosi' che il tappeto si abbassa quando l'utente deve parlare e
-        risale dopo: la rampa e' contata in campioni dentro il callback audio,
-        quindi non dipende dal ritmo del ciclo principale e non produce scatti."""
-        livello = float(max(0.0, min(1.0, livello)))
+        risale dopo. Non ha idea che esista uno stacco: se ne arriva uno
+        mentre questa rampa e' in corso, le due cose si moltiplicano e
+        finiscono entrambe dove volevano andare."""
         with self._lock:
-            self._gain_target = livello
-            if fade > 0:
-                self._gain_step = (livello - self._gain) / (fade * SAMPLE_RATE)
-            else:
-                self._gain, self._gain_step = livello, 0.0
+            self._volume.vai_a(max(0.0, min(1.0, float(livello))), fade)
+
+    def attenua(self, livello, fade=0.8):
+        """Quanto abbassare la musica in questo momento per far posto ad altro.
+
+        Separato da volume() apposta: 0.0 fa silenzio e 1.0 riporta la musica
+        esattamente dov'era, senza doversi ricordare a che volume stava — che
+        e' proprio l'informazione che chi fa uno stacco non ha, perche' la
+        scena successiva potrebbe volerne uno diverso."""
+        with self._lock:
+            self._attenuazione.vai_a(max(0.0, min(1.0, float(livello))), fade)
 
     def fade_out(self, seconds=5.0):
         """Sfuma fino al silenzio, ma NON chiude il flusso.

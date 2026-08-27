@@ -89,6 +89,33 @@ MANDALA_NEBBIA = 0.3         # la nebbia che va bene per volto e testo qui
                              # cancellerebbe il disegno: il mandala e' l'unica
                              # forma che deve leggersi nitida, non suggerita
 
+# ---------- la polvere iniziale ----------
+# La nuvola sparsa che si vede all'apertura, prima che le particelle si
+# raccolgano nel benvenuto.
+POLVERE_AMPIEZZA = 0.68     # larghezza della nuvola, in frazione dell'inquadratura.
+                            # Piu' in alto (0.85) riempie ancora, ma diventa un
+                            # cielo stellato uniforme: si perde il cuore denso
+                            # al centro, e con lui l'idea che sia UNA nuvola
+POLVERE_PROFONDITA = 1.00   # quanto si estende in Z: e' la profondita' vera,
+                            # quella che fa sembrare la nuvola uno spazio e
+                            # non un adesivo piatto
+POLVERE_ARRETRAMENTO = 0.30 # la nuvola sta un po' PIU' INDIETRO dell'origine:
+                            # le particelle davanti diventano piu' grandi per
+                            # prospettiva, e qualche sassata vicinissima
+                            # all'obiettivo sembra un difetto, non profondita'
+SEME_POLVERE = 20260827     # fisso, cosi' l'apertura e' sempre la stessa
+
+# ---------- dissolvenza d'apertura ----------
+# Lo schermo parte nero e sale. Non e' un effetto sulle particelle: e' l'intera
+# immagine che si accende, quindi vive su un Level TOP a valle di tutto.
+DURATA_DISSOLVENZA = 3.0
+# La salita NON e' lineare. L'occhio distingue molto meglio le differenze in
+# penombra che quelle in piena luce: con una rampa lineare l'immagine "arriva"
+# quasi subito e poi passa il resto del tempo a schiarire di poco — si vede
+# comparire, non nascere. Elevando l'avanzamento a questa potenza il nero
+# resta nero piu' a lungo e la luce sale alla fine, che e' come la percepiamo.
+CURVA_DISSOLVENZA = 2.2
+
 # ---------- dissoluzione ----------
 # L'ultima scena. Il mandala NON si ferma: continua a ruotare, galleggiare e
 # respirare come ha sempre fatto, e ogni particella continua a inseguire il
@@ -286,6 +313,91 @@ def _raggio_visibile():
     return (mezza_larghezza / aspetto) * MANDALA_RIEMPIMENTO
 
 
+def _forma_polvere(n):
+    """Particelle sparse: la nuvola da cui nasce il benvenuto.
+
+    Si calcola UNA VOLTA SOLA e si ricorda. Rigenerarla ad ogni fotogramma
+    non darebbe una nuvola sospesa ma rumore che sfarfalla, e soprattutto non
+    sarebbe una forma verso cui muoversi: le particelle inseguirebbero un
+    bersaglio che si sposta a caso sessanta volte al secondo.
+
+    Tre scelte, tutte e tre visibili a occhio:
+
+    GAUSSIANA, NON UNIFORME. Si addensa al centro e si dirada verso i bordi,
+    come polvere vera dentro un fascio di luce. Una nuvola uniforme si legge
+    come un rettangolo di puntini, e si vede che e' stata calcolata.
+
+    CENTRATA SULL'INQUADRATURA, NON SULL'ORIGINE. La telecamera e' spostata
+    in basso (ty negativo) per inquadrare bene il volto: una nuvola centrata
+    sull'origine finisce percio' nella meta' alta dello schermo. Il centro
+    giusto e' dove la telecamera guarda, e si ricava da lei — cosi' resta
+    giusto anche se un giorno la si sposta.
+
+    PIU' LARGA CHE ALTA. L'inquadratura e' 16:10, quindi una nuvola circolare
+    lascerebbe i lati vuoti. La larghezza segue il rapporto d'aspetto."""
+    pos = _c.get('polvere')
+    if pos is not None and pos.shape[0] == n:
+        return pos
+
+    cam = op('face_cam')
+    render = op('face_render')
+    aspetto = render.par.resolutionw.eval() / render.par.resolutionh.eval()
+    raggio = _raggio_visibile()
+
+    rng = np.random.default_rng(SEME_POLVERE)
+    pos = np.empty((n, 3), dtype='float32')
+    pos[:, 0] = rng.normal(0.0, raggio * POLVERE_AMPIEZZA * aspetto, n)
+    pos[:, 1] = rng.normal(0.0, raggio * POLVERE_AMPIEZZA, n)
+    pos[:, 2] = rng.normal(0.0, raggio * POLVERE_PROFONDITA, n)
+
+    pos[:, 0] += cam.par.tx.eval()
+    pos[:, 1] += cam.par.ty.eval()
+    pos[:, 2] -= raggio * POLVERE_ARRETRAMENTO
+
+    _c['polvere'] = pos
+    return pos
+
+
+def buio():
+    """Schermo nero. Ci resta finche' non si chiama accendi()."""
+    _c['dissolvenza'] = (None, 0.0)
+
+
+def accendi(durata=DURATA_DISSOLVENZA):
+    """Fa salire l'immagine dal nero, in 'durata' secondi."""
+    _c['dissolvenza'] = (absTime.seconds, float(durata))
+
+
+def luminosita(ora=None):
+    """Quanto e' accesa l'immagine adesso: 0 nero, 1 piena.
+
+    L'ORA VA PASSATA DA FUORI, e non e' un vezzo. Questa funzione sta in una
+    espressione su un parametro del Level TOP, e TouchDesigner rivaluta una
+    espressione solo quando cambia qualcosa da cui DICHIARA di dipendere.
+    Leggendo absTime qui dentro, TD non puo' accorgersene: vede una chiamata
+    Python opaca, la valuta una volta e tiene il risultato in cache per
+    sempre. La dissolvenza non risultava lenta — non avveniva affatto, e la
+    luce saltava da 0 a 1 in un colpo appena qualcos'altro forzava un
+    ricalcolo. Mettendo absTime.seconds nel TESTO dell'espressione, la
+    dipendenza dal tempo diventa visibile e il parametro si aggiorna ad ogni
+    fotogramma.
+
+    Se nessuno ha mai chiesto una dissolvenza risponde 1: il comportamento
+    normale e' vedere."""
+    if ora is None:
+        ora = absTime.seconds
+    stato = _c.get('dissolvenza')
+    if stato is None:
+        return 1.0
+    t0, durata = stato
+    if t0 is None:
+        return 0.0
+    if durata <= 0.0:
+        return 1.0
+    avanzamento = min(1.0, max(0.0, (ora - t0) / durata))
+    return avanzamento ** CURVA_DISSOLVENZA
+
+
 def _riparti(n, gruppi):
     """n diviso in 'gruppi' parti il piu' uguali possibile."""
     base, resto = divmod(n, gruppi)
@@ -462,6 +574,38 @@ def vai_a(tipo, testo='', durata=None):
     return _c['scena_a']
 
 
+def azzera():
+    """Riporta la scena all'inizio, senza transizione.
+
+    TouchDesigner resta aperto fra una sessione e l'altra, quindi si ricorda
+    tutto: chi rilancia main.py si troverebbe davanti l'ultima schermata di
+    chi c'e' stato prima — di solito il "GRAZIE, A PRESTO" del commiato — e la
+    vedrebbe restare li' per tutti i secondi che Python impiega a svegliarsi.
+
+    Qui si buttano via tre cose:
+      - la dissoluzione in corso, se la sessione era finita li' (altrimenti le
+        particelle resterebbero "libere" e la scena nuova non le riprenderebbe)
+      - la scena corrente, riportata al volto: e' lo stato neutro da cui parte
+        anche un TouchDesigner appena aperto
+      - le scritte in memoria, comprese le frasi personali di chi ha appena
+        finito: non servono piu' a nessuno e non e' roba da lasciare in giro
+
+    Le POSIZIONI delle particelle non si toccano apposta: lasciandole dove
+    sono, scivolano verso il volto con la loro inerzia invece di saltarci di
+    scatto. Un salto si vedrebbe come un errore."""
+    _c['fuga'] = None
+    _c['libera'] = None
+    _c['naso_prec'] = None
+    _c['t_diss'] = None
+    _c['testi'] = {}
+    _c['dissolvenza'] = None      # luce piena: il buio si chiede apposta
+    _c['scena_da'] = ('volto', '')
+    _c['scena_a'] = ('volto', '')
+    _c['t0'] = absTime.seconds
+    _c['durata'] = 0.0
+    return _c['scena_a']
+
+
 def _forma_volto(P):
     w = _c['pesi']
     return (P[_c['a']] * w[:, 0:1]
@@ -494,6 +638,8 @@ def _forma(scena, P, n, ora, sorgente=False):
         if _c.get('mandala_raggi') is None or _c['mandala_raggi'].shape[0] != n:
             return _forma_volto(P)
         return _forma_mandala(ora)
+    if tipo == 'polvere':
+        return _forma_polvere(n)
     if tipo == 'testo':
         pos = _c.get('testi', {}).get(scena[1])
         if pos is not None and pos.shape[0] == n:

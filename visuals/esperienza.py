@@ -39,10 +39,11 @@ import threading
 
 import mandala as modulo_mandala
 import movimento as modulo_movimento
+import musica as modulo_musica
 import occhi as modulo_occhi
 import scena as modulo_scena
+import stacco as modulo_stacco
 import testi
-import musica as modulo_musica
 
 # ---------- scritte sempre uguali ----------
 SALUTO = ["BENVENUTO E GRAZIE PER ESSERE QUI"]
@@ -52,6 +53,11 @@ CHIUSURA = ["È IL MOMENTO DI MEDITARE", "CHIUDI GLI OCCHI QUANDO TI SENTI PRONT
 ATTESA_MANDALA = ["STO DISEGNANDO IL TUO MANDALA"]
 INVITO_DISSOLUZIONE = ["MUOVI IL VOLTO E LIBERATI DEL MANDALA"]
 COMMIATO = ["NIENTE DI BELLO VA TRATTENUTO", "GRAZIE, A PRESTO"]
+
+# Tutte quelle che non dipendono dal racconto: TD puo' disegnarle in anticipo,
+# una volta sola, prima che l'esperienza cominci.
+SCRITTE_FISSE = (SALUTO + INVITO + ATTESA + ATTESA_MANDALA
+                 + INVITO_DISSOLUZIONE + COMMIATO + CHIUSURA)
 
 # ---------- tempi (secondi) ----------
 # REGOLA: nessuna scritta resta a schermo meno di LEGGIBILE, e questo tempo si
@@ -66,7 +72,11 @@ LEGGIBILE = 2.0
 TRANSIZIONE = 2.0           # quanto dura il passaggio da una forma all'altra (prova; era 4.0)
 TRANSIZIONE_BREVE = 1.5     # per i cambi rapidi (blocchi d'attesa) (prova; era 2.5)
 
-DURATA_SALUTO = TRANSIZIONE + LEGGIBILE
+# L'apertura ha una transizione tutta sua, molto piu' lenta delle altre: e' la
+# nuvola di polvere che si raccoglie nelle prime parole, e vale la pena
+# guardarla. Le altre transizioni collegano due scritte, questa apre l'opera.
+TRANSIZIONE_APERTURA = 5.0
+DURATA_SALUTO = TRANSIZIONE_APERTURA + LEGGIBILE
 DURATA_INVITO = TRANSIZIONE + LEGGIBILE   # tranne l'ultimo blocco: quello
                                           # resta finche' non chiude gli occhi
 DURATA_ATTESA = TRANSIZIONE_BREVE + LEGGIBILE
@@ -109,6 +119,15 @@ PERMANENZA_MANDALA = 12.0    # quanto lo si contempla prima di lasciarlo andare 
 # ---------- la dissoluzione ----------
 DURATA_INVITO_DISSOLUZIONE = TRANSIZIONE + LEGGIBILE
 MAX_DISSOLUZIONE = 60.0      # se non scuote mai, si prosegue lo stesso
+# Lo stacco certifica un passaggio di stato, quindi deve avvenire solo dove
+# gli occhi vengono davvero ascoltati. Negli altri otto stati chiudere o
+# riaprire non fa succedere niente: interrompere li' la musica prometterebbe
+# qualcosa che non sta accadendo, ed e' peggio del silenzio.
+STATI_CHE_ASCOLTANO_GLI_OCCHI = (
+    "invito", "ascolto", "invito_meditazione", "meditazione",
+)
+STACCO_SEMPRE = False    # True: stacca ad ogni cambio, anche quando e' a vuoto
+
 TRANSIZIONE_LUNGA = 6.0      # per il commiato: le particelle sono sparse fuori
                              # campo e devono rientrare per comporre le parole
 PERMANENZA_COMMIATO = LEGGIBILE
@@ -131,6 +150,7 @@ class Esperienza:
         self._ultimo_stato_occhi = None
         self._materiale = None
         self._t_pronto = None
+        self._scritte_pronte = False
 
         self._indice_blocco = 0
         self._t_blocco = 0.0
@@ -147,13 +167,49 @@ class Esperienza:
         self.tappeto = tappeto if tappeto is not None else modulo_musica.Music()
         self.emozione = "Q2"   # ripiego se la generazione non risponde
 
+        # lo stacco abbassa ENTRAMBE le sorgenti: uscendo dalla meditazione
+        # suona la traccia, non il tappeto, e lasciarla su coprirebbe la
+        # campana proprio nel passaggio piu' delicato
+        self.stacco = modulo_stacco.Stacco(
+            (self.tappeto, self.musica), modulo_musica.SAMPLE_RATE
+        )
+
     # ---------- avvio ----------
 
+    def prepara_scritte(self):
+        """Chiede a TD di disegnare in anticipo tutte le scritte fisse.
+
+        Dopo questa chiamata bisogna lasciar passare del tempo prima di
+        poterne mostrare una: TD le disegna e le campiona una alla volta, e
+        chiedere una scritta non ancora pronta fa ripiegare sul volto."""
+        self.scena.prepara(SCRITTE_FISSE)
+        self._scritte_pronte = True
+
+    def mostra_polvere(self):
+        """Sparge le particelle, senza transizione.
+
+        Da chiamare a finestra ancora chiusa: quando il sipario si alza si
+        vede gia' la nuvola, ferma e sospesa. E' da li' che nasce tutto il
+        resto."""
+        self.scena.polvere(transizione=0.0)
+
+    def mostra_saluto(self):
+        """Mette il benvenuto a schermo SENZA transizione.
+
+        Non serve a main.py, che apre sulla polvere: e' qui per chi volesse
+        far partire l'esperienza con il benvenuto gia' composto."""
+        self.scena.testo(SALUTO[0], transizione=0.0)
+
     def avvia(self, ora):
-        self.scena.prepara(SALUTO + INVITO + ATTESA + ATTESA_MANDALA
-                           + INVITO_DISSOLUZIONE + COMMIATO + CHIUSURA)
+        # se si e' passati da prepara_scritte() non si rifa': ridisegnarle
+        # costerebbe un secondo abbondante proprio mentre si parte
+        if not self._scritte_pronte:
+            self.prepara_scritte()
         self._vai("saluto", ora)
-        self._mostra_blocco(SALUTO, 0, ora)
+        # Il momento dell'apertura: le particelle sparse si raccolgono nelle
+        # prime parole. Piu' lento del resto perche' e' l'inizio, e perche'
+        # e' il primo movimento che lo spettatore vede.
+        self._mostra_blocco(SALUTO, 0, ora, transizione=TRANSIZIONE_APERTURA)
         self.tappeto.play(EMOZIONE_TAPPETO, fade=DISSOLVENZA_TAPPETO,
                           volume=VOLUME_APERTURA, morbido=True)
         # anche il flusso della traccia si apre ADESSO, muto e senza nulla da
@@ -174,7 +230,16 @@ class Esperienza:
         stato_occhi = self.occhi.aggiorna(punti, ora)
         if stato_occhi != self._ultimo_stato_occhi:
             print(f"occhi: {stato_occhi}")
+            # la prima lettura non e' un cambiamento: e' solo il primo
+            # fotogramma utile, e non merita uno stacco
+            conta = STACCO_SEMPRE or self.stato in STATI_CHE_ASCOLTANO_GLI_OCCHI
+            if self._ultimo_stato_occhi is not None and conta:
+                self.stacco.avvia(ora, chiusura=(stato_occhi == "chiusi"))
             self._ultimo_stato_occhi = stato_occhi
+
+        # lo stacco ha i suoi tempi e non blocca nessuno: avanza qui, un
+        # fotogramma alla volta, come la macchina a stati grande
+        self.stacco.aggiorna(ora)
 
         trascorso = ora - self.t_stato
 
@@ -327,6 +392,8 @@ class Esperienza:
     def ferma_suono(self):
         """Spegne tappeto e traccia. Da chiamare anche se la sessione viene
         interrotta a meta': un flusso audio aperto sopravvive al programma."""
+        # uno stacco lasciato a meta' terrebbe la musica attenuata a zero
+        self.stacco.annulla()
         for sorgente in (self.tappeto, self.musica):
             try:
                 sorgente.stop()

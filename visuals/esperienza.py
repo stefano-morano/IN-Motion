@@ -97,11 +97,32 @@ PERMANENZA_CHIUSURA = LEGGIBILE
 EMOZIONE_TAPPETO = "Q4"
 DISSOLVENZA_TAPPETO = 4.0    # quanto ci mette a cambiare volume
 
-VOLUME_APERTURA = 0.70       # saluto e invito
-VOLUME_ASCOLTO = 0.30        # mentre la persona parla: si fa da parte
-VOLUME_PREPARAZIONE = 0.70   # attesa, frasi personalizzate, danza
-VOLUME_MEDITAZIONE = 0.00    # tace del tutto: parla la traccia generata
-VOLUME_FINALE = 0.70         # mandala, dissoluzione, commiato
+# All'apertura il tappeto sale INSIEME all'immagine, dallo stesso nero: e' la
+# stessa curva della dissolvenza visiva (CURVA_DISSOLVENZA in
+# td_face_points.py). Una rampa lineare sotto un'immagine che sale in modo
+# curvo si sentirebbe arrivare prima di quel che si vede.
+CURVA_APERTURA = 2.2
+
+# Un solo livello per tutta l'opera. Qualunque cosa stia suonando — il tappeto
+# o la traccia della meditazione — suona a questo volume: cambia la musica, non
+# quanto e' forte.
+VOLUME_PIENO = 0.70
+
+VOLUME_APERTURA = VOLUME_PIENO       # saluto e invito
+VOLUME_PREPARAZIONE = VOLUME_PIENO   # attesa, frasi personalizzate, danza
+VOLUME_FINALE = VOLUME_PIENO         # mandala, dissoluzione, commiato
+
+# Le due sole eccezioni, e sono funzionali, non estetiche:
+VOLUME_ASCOLTO = 0.30        # mentre la persona parla il tappeto si fa da
+                             # parte, altrimenti Whisper sente lui e non lei
+VOLUME_MEDITAZIONE = 0.00    # il TAPPETO tace durante la meditazione, per
+                             # lasciare il campo alla traccia generata — che
+                             # suona comunque a VOLUME_PIENO
+
+# Quanto resta della musica sotto la campana dello stacco. Non zero: la
+# campana nel silenzio assoluto suona come un'interruzione, non come un
+# passaggio. Un filo di musica sotto la tiene dentro il pezzo.
+VOLUME_SOTTO_CAMPANA = 0.30
 
 # ---------- fase 2: meditazione ----------
 MIN_MEDITAZIONE = 3.0       # una riapertura fulminea non puo' bastare a finirla
@@ -151,6 +172,7 @@ class Esperienza:
         self._materiale = None
         self._t_pronto = None
         self._scritte_pronte = False
+        self._tappeto_avviato = False
 
         self._indice_blocco = 0
         self._t_blocco = 0.0
@@ -170,8 +192,11 @@ class Esperienza:
         # lo stacco abbassa ENTRAMBE le sorgenti: uscendo dalla meditazione
         # suona la traccia, non il tappeto, e lasciarla su coprirebbe la
         # campana proprio nel passaggio piu' delicato
+        # l'attenuazione e' un MOLTIPLICATORE, quindi il rapporto fra i due
+        # livelli: lo stacco non deve sapere a che volume sta la scena
         self.stacco = modulo_stacco.Stacco(
-            (self.tappeto, self.musica), modulo_musica.SAMPLE_RATE
+            (self.tappeto, self.musica), modulo_musica.SAMPLE_RATE,
+            attenuazione=VOLUME_SOTTO_CAMPANA / VOLUME_PIENO,
         )
 
     # ---------- avvio ----------
@@ -184,6 +209,22 @@ class Esperienza:
         chiedere una scritta non ancora pronta fa ripiegare sul volto."""
         self.scena.prepara(SCRITTE_FISSE)
         self._scritte_pronte = True
+
+    def prepara_tappeto(self):
+        """Carica il tappeto senza farlo partire.
+
+        Il caricamento e' l'operazione piu' lenta di tutto l'avvio (si
+        ricampiona e si filtra la traccia): va fatta a sipario chiuso, non nel
+        momento in cui la musica deve entrare."""
+        self.tappeto.carica(EMOZIONE_TAPPETO, morbido=True)
+
+    def avvia_tappeto(self, fade=DISSOLVENZA_TAPPETO, curva=CURVA_APERTURA):
+        """Fa entrare il tappeto. Se non e' stato caricato prima lo carica
+        adesso — funziona lo stesso, ma il ciclo si ferma per un secondo."""
+        if not self.tappeto.pronta:
+            self.prepara_tappeto()
+        self.tappeto.parti(fade=fade, volume=VOLUME_APERTURA, curva=curva)
+        self._tappeto_avviato = True
 
     def mostra_polvere(self):
         """Sparge le particelle, senza transizione.
@@ -210,8 +251,10 @@ class Esperienza:
         # prime parole. Piu' lento del resto perche' e' l'inizio, e perche'
         # e' il primo movimento che lo spettatore vede.
         self._mostra_blocco(SALUTO, 0, ora, transizione=TRANSIZIONE_APERTURA)
-        self.tappeto.play(EMOZIONE_TAPPETO, fade=DISSOLVENZA_TAPPETO,
-                          volume=VOLUME_APERTURA, morbido=True)
+        # di norma il tappeto e' gia' entrato con la dissolvenza d'apertura;
+        # qui si copre il caso in cui avvia() venga chiamata da sola
+        if not self._tappeto_avviato:
+            self.avvia_tappeto()
         # anche il flusso della traccia si apre ADESSO, muto e senza nulla da
         # suonare: aprirlo piu' tardi, mentre il tappeto suona, farebbe
         # riconfigurare la scheda audio e si sentirebbe un click
@@ -328,7 +371,7 @@ class Esperienza:
                 self._vai("meditazione", ora)
                 self.scena.mostra("volto", transizione=TRANSIZIONE)
                 self.tappeto.volume(VOLUME_MEDITAZIONE, fade=6.0)
-                self.musica.play(self.emozione, fade=6.0)
+                self.musica.play(self.emozione, fade=6.0, volume=VOLUME_PIENO)
 
         elif self.stato == "meditazione":
             pronto_a_finire = trascorso >= MIN_MEDITAZIONE

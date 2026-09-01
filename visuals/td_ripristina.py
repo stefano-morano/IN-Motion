@@ -19,7 +19,10 @@ CARTELLA = os.path.dirname(os.path.abspath(__file__)) if '__file__' in dir() els
 
 def _carica(nome_file, percorso_nodo):
     """Copia il contenuto di un file dentro un DAT di TouchDesigner."""
-    with open(os.path.join(CARTELLA, nome_file)) as f:
+    # encoding esplicito: senza, Python dentro TD puo' aprire in ascii invece
+    # che utf-8 (dipende dalla macchina), e questi file hanno caratteri come
+    # '—' e le lettere accentate che in ascii non esistono.
+    with open(os.path.join(CARTELLA, nome_file), encoding='utf-8') as f:
         testo = f.read()
     # la copia di riferimento porta un'intestazione che spiega cos'e':
     # va tolta, dentro TD sarebbe solo rumore
@@ -43,7 +46,8 @@ def ripristina():
     passi.append(_carica('td_controllo_osc.py', '/project1/controllo_osc_callbacks'))
 
     # 3. la resa grafica: colore per istanza, fusione additiva, post-produzione
-    exec(open(os.path.join(CARTELLA, 'td_estetica.py')).read(), {'__file__': os.path.join(CARTELLA, 'td_estetica.py')})
+    with open(os.path.join(CARTELLA, 'td_estetica.py'), encoding='utf-8') as f:
+        exec(f.read(), {'__file__': os.path.join(CARTELLA, 'td_estetica.py')})
     passi.append('td_estetica.py -> nodi della resa')
 
     # 4. un giro di cottura per far comparire tutto

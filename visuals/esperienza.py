@@ -46,13 +46,43 @@ import stacco as modulo_stacco
 import testi
 
 # ---------- scritte sempre uguali ----------
-SALUTO = ["BENVENUTO E GRAZIE PER ESSERE QUI"]
-INVITO = ["QUANDO TI SENTI PRONTO", "CHIUDI GLI OCCHI E RACCONTAMI CIO CHE VUOI"]
+# Per il saluto, l'invito, la chiusura e il commiato ci sono piu' varianti: se
+# ne sceglie una a caso all'avvio del processo (un'esecuzione = una sessione),
+# cosi' chi rifa' l'esperienza piu' volte — prove, dimostrazioni — non sente
+# sempre le stesse parole. La macchina a stati usa len(...) per sapere quando
+# passare oltre, quindi le varianti non devono avere tutte lo stesso numero di
+# righe; devono pero' restare entro i 42 caratteri per riga (vedi MAX_CARATTERI
+# in testi.py) e coprire lo stesso contenuto funzionale delle altre — INVITO,
+# in particolare, deve sempre dire di chiudere gli occhi E raccontare.
+SALUTO_VARIANTI = [
+    ["BENVENUTO E GRAZIE PER ESSERE QUI"],
+    ["SEI ARRIVATO, E QUESTO BASTA"],
+    ["GRAZIE DI ESSERE QUI, ORA"],
+]
+INVITO_VARIANTI = [
+    ["QUANDO TI SENTI PRONTO", "CHIUDI GLI OCCHI E RACCONTAMI CIO CHE VUOI"],
+    ["PRENDITI IL TUO TEMPO", "CHIUDI GLI OCCHI, DIMMI COSA PORTI OGGI"],
+    ["NESSUNA FRETTA", "CHIUDI GLI OCCHI E RACCONTAMI COME STAI"],
+]
+CHIUSURA_VARIANTI = [
+    ["È IL MOMENTO DI MEDITARE", "CHIUDI GLI OCCHI QUANDO TI SENTI PRONTO"],
+    ["ORA TOCCA A TE, IN SILENZIO", "CHIUDI GLI OCCHI QUANDO SEI PRONTO"],
+    ["IL RESPIRO SA GIÀ COSA FARE", "CHIUDI GLI OCCHI E LASCIALO GUIDARE"],
+]
+COMMIATO_VARIANTI = [
+    ["NIENTE DI BELLO VA TRATTENUTO", "GRAZIE, A PRESTO"],
+    ["QUELLO CHE SERVIVA È SUCCESSO", "GRAZIE DI CUORE, A PRESTO"],
+    ["PORTA CON TE SOLO CIO CHE SERVE", "A PRESTO"],
+]
+
+SALUTO = random.choice(SALUTO_VARIANTI)
+INVITO = random.choice(INVITO_VARIANTI)
+CHIUSURA = random.choice(CHIUSURA_VARIANTI)
+COMMIATO = random.choice(COMMIATO_VARIANTI)
+
 ATTESA = ["PREPARO LA TUA MEDITAZIONE", "CONCENTRATI SUL TUO RESPIRO"]
-CHIUSURA = ["È IL MOMENTO DI MEDITARE", "CHIUDI GLI OCCHI QUANDO TI SENTI PRONTO"]
 ATTESA_MANDALA = ["STO DISEGNANDO IL TUO MANDALA"]
 INVITO_DISSOLUZIONE = ["MUOVI IL VOLTO E LIBERATI DEL MANDALA"]
-COMMIATO = ["NIENTE DI BELLO VA TRATTENUTO", "GRAZIE, A PRESTO"]
 
 # Tutte quelle che non dipendono dal racconto: TD puo' disegnarle in anticipo,
 # una volta sola, prima che l'esperienza cominci.
@@ -87,6 +117,15 @@ MAX_ATTESA_GESTO = 90.0     # se il gesto non arriva mai, si prosegue lo stesso
 PERMANENZA_VOLTO = 1.5      # il volto non e' da leggere: puo' durare meno
 PERMANENZA_FRASE = LEGGIBILE
 PERMANENZA_CONCETTO = LEGGIBILE + 2.0   # il concetto finale merita piu' respiro
+
+# Il motore musicale (music/reference_select.py) fa scendere l'energia
+# lentamente per Q1/Q2 (si parte da un'arousal alta), mentre per Q3/Q4 e'
+# gia' vicina alla calma quando la danza finisce. Per Q1/Q2 il concetto
+# finale resta a schermo un po' di piu': la musica sotto sta ancora
+# atterrando, e il testo non deve anticipare un arrivo che il suono non ha
+# ancora fatto.
+RESPIRO_EXTRA_DISCESA = 2.0
+QUADRANTI_IN_DISCESA = ("Q1", "Q2")
 PERMANENZA_CHIUSURA = LEGGIBILE
 
 # ---------- il tappeto sonoro ----------
@@ -482,12 +521,15 @@ class Esperienza:
 
     def _costruisci_copione(self):
         m = self._materiale
+        permanenza_concetto = PERMANENZA_CONCETTO
+        if self.emozione in QUADRANTI_IN_DISCESA:
+            permanenza_concetto += RESPIRO_EXTRA_DISCESA
         self.copione = [
             ("volto", "", TRANSIZIONE, PERMANENZA_VOLTO),
             ("testo", m["frase_1"], TRANSIZIONE, PERMANENZA_FRASE),
             ("volto", "", TRANSIZIONE, PERMANENZA_VOLTO),
             ("testo", m["frase_2"], TRANSIZIONE, PERMANENZA_FRASE),
-            ("testo", m["concetto"], TRANSIZIONE, PERMANENZA_CONCETTO),
+            ("testo", m["concetto"], TRANSIZIONE, permanenza_concetto),
         ]
         for scritta in CHIUSURA:
             self.copione.append(("testo", scritta, TRANSIZIONE, PERMANENZA_CHIUSURA))
@@ -515,16 +557,21 @@ class Esperienza:
             f"  meditazione: {self._durata_meditazione:.0f}s -> "
             f"+{bonus} di dettaglio ({petali} petali, {anelli} anelli)"
         )
-        self.scena.prepara_mandala(petali, anelli, m["mandala_tonalita"], seed)
+        # l'emozione viaggia con gli altri parametri: e' lei a decidere quanto
+        # il colore si apre in gradiente, di qua e nell'immagine salvata
+        self.scena.prepara_mandala(petali, anelli, m["mandala_tonalita"], seed,
+                                   self.emozione)
 
         # Lo stesso mandala, ad alta risoluzione, come file da portare via.
         # Gira in un thread: disegnare 260.000 particelle richiede un paio di
         # secondi e il ciclo principale non deve fermarsi per questo.
-        self._salva_immagine(petali, anelli, m["mandala_tonalita"], seed)
+        self._salva_immagine(petali, anelli, m["mandala_tonalita"], seed,
+                             self.emozione)
 
-    def _salva_immagine(self, petali, anelli, tonalita, seed):
+    def _salva_immagine(self, petali, anelli, tonalita, seed, emozione):
         def lavoro():
-            percorso = modulo_mandala.salva(petali, anelli, tonalita, seed)
+            percorso = modulo_mandala.salva(petali, anelli, tonalita, seed,
+                                            emozione=emozione)
             if percorso:
                 print(f"  il tuo mandala e' salvato in: {percorso}")
 

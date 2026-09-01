@@ -14,9 +14,10 @@ Tre messaggi:
       TD disegna le frasi e ne ricava le posizioni delle particelle.
       Va mandato una volta, prima di usarle.
 
-  /mandala  petali  anelli  tonalita  seed
+  /mandala  petali  anelli  tonalita  seed  emozione
       TD genera le posizioni del mandala (calcolo puro, nessun disegno da
-      campionare). Va mandato una volta, prima di mostrarlo.
+      campionare). Va mandato una volta, prima di mostrarlo. L'emozione
+      ('Q1'..'Q4') decide quanto il colore si apre in gradiente.
 
   /scena  tipo  testo  durata
       Fa partire la transizione. tipo = 'volto', 'testo' oppure 'mandala'.
@@ -50,7 +51,11 @@ def onReceiveOSC(dat, rowIndex, message, byteData, timeStamp, address, args, pee
             delayFrames=1)
 
     elif address == '/mandala':
-        regia._c['da_preparare_mandala'] = [float(a) for a in args]
+        # i primi quattro sono numeri, il quinto (l'emozione) e' una sigla:
+        # convertire tutto a float come si faceva prima farebbe fallire su 'Q2'
+        numeri = [float(a) for a in args[:4]]
+        emozione = str(args[4]) if len(args) > 4 else 'Q2'
+        regia._c['da_preparare_mandala'] = numeri + [emozione]
         run("op('/project1/face_points_callbacks').module.prepara_mandala_in_coda()",
             delayFrames=1)
 

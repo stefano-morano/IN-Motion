@@ -6,15 +6,14 @@
  * renderer può caricare in BufferGeometry senza ulteriori conversioni.
  */
 
+import {
+    SCALA, CAM_TX, CAM_TY,
+    aspettoSchermo, raggioVisibile,
+} from './scena.js';
+
 // ------------------------------------------------------------------ costanti
-const ASPETTO = 16.0 / 9.0;
-const SCALA = 2.0;
 const TOTALE_PARTICELLE = 13664;
 const ESPONENTE_DENSITA = 0.45;
-const TESTO_LARGHEZZA = 1.9;
-const TESTO_ALTEZZA = 0.9;
-const CAM_TX = 0.0;
-const CAM_TY = 0.0;
 
 const PALETTE_CALMA = {
     fondo: [0.020, 0.045, 0.115],
@@ -25,7 +24,6 @@ const SCINTILLIO = 0.16;
 const SCINTILLIO_VELOCITA = 0.35;
 const PROFONDITA_COLORE = 0.30;
 
-const MANDALA_RIEMPIMENTO = 0.88;
 const MANDALA_PETALO = 0.26;
 const MANDALA_ARMONICA = 0.10;
 const MANDALA_SFASAMENTO = true;
@@ -33,8 +31,7 @@ const MANDALA_CUPOLA = 0.16;
 const MANDALA_SPESSORE = 0.035;
 const MANDALA_ROTAZIONE = 0.06;
 const MANDALA_NEBBIA = 0.3;
-// Il raggio visibile corrisponde a metà altezza del frustum (SCALA/2 = 1.0)
-const RAGGIO_VISIBILE = (SCALA / 2.0) * MANDALA_RIEMPIMENTO;
+// Il raggio visibile corrisponde a metà altezza del frustum (SCALA/2)
 
 const POLVERE_AMPIEZZA = 0.68;
 const POLVERE_PROFONDITA = 1.00;
@@ -149,6 +146,8 @@ export class LogicaParticelle {
         this._c = {};          // cache: tutto quello che si calcola una volta
         this._triangoli = null;
         this._pronto = false;
+        this._onResize = () => { this._c.polvere = null; };
+        window.addEventListener('resize', this._onResize);
     }
 
     async init() {
@@ -220,9 +219,10 @@ export class LogicaParticelle {
         // Converti landmark MediaPipe → coordinate scena 3D
         let pts = null;
         if (P && P.length >= 478) {
+            const aspetto = aspettoSchermo();
             pts = new Float32Array(P.length * 3);
             for (let i = 0; i < P.length; i++) {
-                pts[i * 3]     = (0.5 - P[i].x) * ASPETTO * SCALA;
+                pts[i * 3]     = (0.5 - P[i].x) * aspetto * SCALA;
                 pts[i * 3 + 1] = (0.5 - P[i].y) * SCALA;
                 pts[i * 3 + 2] = -P[i].z * SCALA;
             }
@@ -475,8 +475,8 @@ export class LogicaParticelle {
             return this._c.polvere;
         }
         const rng = new RNG(SEME_POLVERE);
-        const aspetto = ASPETTO;
-        const raggio  = RAGGIO_VISIBILE;
+        const aspetto = aspettoSchermo();
+        const raggio  = raggioVisibile();
         const pos = new Float32Array(n * 3);
         for (let i = 0; i < n; i++) {
             pos[i*3]   = CAM_TX + rng.normal() * raggio * POLVERE_AMPIEZZA * aspetto;
@@ -491,7 +491,7 @@ export class LogicaParticelle {
         anelli  = Math.max(Math.floor(anelli), 1);
         petali  = Math.max(Math.floor(petali), 2);
         const rng = new RNG(Math.floor(seed));
-        const ragMax = RAGGIO_VISIBILE;
+        const ragMax = raggioVisibile();
         const conteggi = _riparti(n, anelli);
         const spaziatura = (0.82 / anelli) * ragMax;
         const sfogo = spaziatura * 0.45;

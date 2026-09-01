@@ -45,6 +45,7 @@ let _pendingInizia    = false;
 let _postMostrato     = false;
 let _esperienzaFinita = false;
 let _inRiflessione    = false;
+let _riflessioneCompletata = false;
 
 const WS_URL = `ws://${location.host}/ws`;
 const stato = document.getElementById('stato');
@@ -63,6 +64,7 @@ class AudioManager {
         this._cache = new Map();
         this._recorder = null;
         this._audioChunks = [];
+        this._micStream = null;
         this._onAudioReady = null;
     }
 
@@ -213,15 +215,27 @@ class AudioManager {
     }
 
     // ---- registrazione microfono ----
-    apriMicrofono() {
-        // Solo prepara il permesso, la registrazione parte con inizia()
+    async apriMicrofono() {
+        if (this._micStream) return;
+        try {
+            this._micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch (e) {
+            console.warn('microfono non disponibile:', e);
+        }
     }
 
     async inizia() {
+        if (this._recorder?.state === 'recording') return;
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            if (!this._micStream) {
+                this._micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            }
+            const stream = this._micStream;
             this._audioChunks = [];
-            this._recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+            const opts = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                ? { mimeType: 'audio/webm;codecs=opus' }
+                : undefined;
+            this._recorder = new MediaRecorder(stream, opts);
             this._recorder.ondataavailable = e => { if (e.data.size > 0) this._audioChunks.push(e.data); };
             this._recorder.onstop = () => {
                 const blob = new Blob(this._audioChunks, { type: 'audio/webm' });
@@ -230,8 +244,6 @@ class AudioManager {
                         ws.send(buf);
                     }
                 });
-                // Chiude i track del microfono
-                stream.getTracks().forEach(t => t.stop());
             };
             this._recorder.start();
         } catch (e) {
@@ -248,6 +260,63 @@ class AudioManager {
 
 const audio = new AudioManager();
 
+// Trascrizione live durante la fase ascolto (occhi chiusi)
+let _ascoltoRec     = null;
+let _ascoltoAttivo  = false;
+let _ascoltoBase    = '';
+let _ascoltoMotivo  = null;   // 'racconto' | 'riflessione'
+
+function _iniziaAscoltoVisivo() {
+    if (_ascoltoAttivo) return;
+    _ascoltoAttivo = true;
+    _ascoltoBase   = '';
+    const testoEl  = document.getElementById('testo-sessione-testo');
+    if (testoEl) testoEl.textContent = '';
+    document.getElementById('testo-sessione')?.classList.add('visibile');
+
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return;
+
+    _ascoltoRec = new SR();
+    _ascoltoRec.lang = 'it-IT';
+    _ascoltoRec.continuous = true;
+    _ascoltoRec.interimResults = true;
+    _ascoltoRec.onresult = ev => {
+        let interim = '';
+        for (let i = ev.resultIndex; i < ev.results.length; i++) {
+            if (ev.results[i].isFinal) _ascoltoBase += ev.results[i][0].transcript;
+            else interim = ev.results[i][0].transcript;
+        }
+        if (testoEl) testoEl.textContent = (_ascoltoBase + interim).trim();
+    };
+    _ascoltoRec.onend = () => {
+        if (_ascoltoAttivo) {
+            try { _ascoltoRec?.start(); } catch (_) {}
+        }
+    };
+    _ascoltoRec.onerror = () => { /* Whisper fa da backup */ };
+
+    try { _ascoltoRec.start(); } catch (_) {}
+}
+
+function _fermaAscoltoVisivo() {
+    _ascoltoAttivo = false;
+    if (_ascoltoRec) {
+        try { _ascoltoRec.stop(); } catch (_) {}
+        _ascoltoRec = null;
+    }
+    return document.getElementById('testo-sessione-testo')?.textContent?.trim() || '';
+}
+
+async function _avviaAscolto() {
+    if (_ascoltoAttivo) return;
+    _iniziaAscoltoVisivo();
+    try { await audio.apriMicrofono(); } catch (_) {}
+    try { await audio.inizia(); } catch (e) {
+        console.warn('registrazione audio:', e);
+    }
+}
+
 function _inviaInizia() {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({
@@ -256,12 +325,26 @@ function _inviaInizia() {
     }));
 }
 
+function _mostraBtnFineRiflessione() {
+    const el = document.getElementById('ui-riflessione');
+    if (!el) return;
+    el.classList.remove('nascosto');
+    el.classList.add('visibile');
+}
+
+function _nascondiBtnFineRiflessione() {
+    const el = document.getElementById('ui-riflessione');
+    if (!el) return;
+    el.classList.remove('visibile');
+    el.classList.add('nascosto');
+}
+
 function _apriRiflessioneInEsperienza() {
     if (_inRiflessione) return;
     _inRiflessione = true;
+    _riflessioneCompletata = false;
     _postMostrato = true;
-
-    document.getElementById('testo-sessione')?.classList.remove('visibile');
+    _ascoltoMotivo = 'riflessione';
 
     _durataSessione = Math.round((Date.now() - _tInizio) / 1000 / 60);
     _seriePre       = _analizzatore.serie();
@@ -273,17 +356,26 @@ function _apriRiflessioneInEsperienza() {
     _analizzatorePost.inizia();
     _tInizioPost = true;
 
-    const testoPost = document.getElementById('testo-post');
-    if (testoPost) testoPost.value = '';
-    document.getElementById('panel-post')?.classList.add('visibile');
-    testoPost?.focus();
     stato.textContent = 'come ti senti adesso?';
+    _mostraBtnFineRiflessione();
+}
+
+async function _concludiRiflessione() {
+    if (!_inRiflessione || _riflessioneCompletata) return;
+    _riflessioneCompletata = true;
+    _nascondiBtnFineRiflessione();
+    const testo = _fermaAscoltoVisivo();
+    _ascoltoMotivo = null;
+    audio.ferma();
+    await _completaSessione(testo);
 }
 
 function _nascondiOverlayEsperienza() {
-    document.getElementById('panel-post')?.classList.remove('visibile');
     document.getElementById('panel-risultati')?.classList.remove('visibile');
+    _nascondiBtnFineRiflessione();
     _inRiflessione = false;
+    _riflessioneCompletata = false;
+    _ascoltoMotivo = null;
 }
 
 // ------------------------------------------------------------------ WebSocket
@@ -314,7 +406,7 @@ function connect() {
         console.log('ws ←', tipo, msg.scena || msg.azione || '');
 
         if (tipo === 'pronto') {
-            if (!uiRacconto?.classList.contains('visibile')) {
+            if (!_sessioneIniziata) {
                 _resetUiIngresso();
                 ui.classList.remove('nascosto');
             }
@@ -358,16 +450,37 @@ function connect() {
 
         } else if (tipo === 'ascolto') {
             if (msg.azione === 'apri') {
-                audio.apriMicrofono();
+                await audio.apriMicrofono();
             } else if (msg.azione === 'inizia') {
-                await audio.inizia();
+                if (!_inRiflessione) _ascoltoMotivo = 'racconto';
+                await _avviaAscolto();
             } else if (msg.azione === 'ferma') {
+                const motivo = _ascoltoMotivo || 'racconto';
+                const testo  = _fermaAscoltoVisivo();
+                _ascoltoMotivo = null;
                 audio.ferma();
+                if (motivo === 'riflessione') {
+                    if (!_riflessioneCompletata) {
+                        _riflessioneCompletata = true;
+                        _nascondiBtnFineRiflessione();
+                        await _completaSessione(testo);
+                    }
+                } else {
+                    _testoSessione = testo;
+                    if (testo && ws?.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            tipo:    'racconto',
+                            testo,
+                            profilo: _profiloUtente || {},
+                        }));
+                    }
+                }
             }
 
         } else if (tipo === 'ui') {
             if (msg.fase === 'riflessione' && msg.azione === 'apri') {
                 _apriRiflessioneInEsperienza();
+                await _avviaAscolto();
             } else if (msg.fase === 'nascondi') {
                 _nascondiOverlayEsperienza();
             }
@@ -481,11 +594,14 @@ function _mostraUiIngresso() {
 // ------------------------------------------------------------------ Firebase auth
 const loginOverlay   = document.getElementById('login-overlay');
 const profiloOverlay = document.getElementById('profilo-overlay');
-const utenteInfo     = document.getElementById('utente-info');
+const ctrlItemProfilo = document.getElementById('ctrl-item-profilo');
 const utenteNome     = document.getElementById('utente-nome');
 const utenteAvatar   = document.getElementById('utente-avatar');
+const utenteAvatarFallback = document.getElementById('utente-avatar-fallback');
 const loginErrore    = document.getElementById('login-errore');
 const loginOk        = document.getElementById('login-ok');
+const utenteFlyout   = document.getElementById('utente-flyout');
+const volumeFlyout   = document.getElementById('volume-flyout');
 
 // Inizializza Firebase (recupera config dal server) poi registra il listener auth
 const _firebaseConfigurato = await inizializza();
@@ -499,8 +615,12 @@ onAuth(async utente => {
         if (utente.photoURL) {
             utenteAvatar.src = utente.photoURL;
             utenteAvatar.style.display = 'block';
+            if (utenteAvatarFallback) utenteAvatarFallback.style.display = 'none';
+        } else {
+            utenteAvatar.style.display = 'none';
+            if (utenteAvatarFallback) utenteAvatarFallback.style.display = 'block';
         }
-        utenteInfo.classList.add('visibile');
+        ctrlItemProfilo?.classList.add('visibile');
 
         // Controlla se il profilo esiste già su Firestore (primo accesso?)
         try { _profiloUtente = await caricaProfilo(utente.uid); }
@@ -519,7 +639,7 @@ onAuth(async utente => {
         profiloOverlay?.classList.remove('visibile');
         if (_firebaseConfigurato) {
             loginOverlay.classList.remove('nascosto');
-            utenteInfo.classList.remove('visibile');
+            ctrlItemProfilo?.classList.remove('visibile');
         } else {
             // Firebase non configurato: salta il login e avvia direttamente
             loginOverlay.classList.add('nascosto');
@@ -661,15 +781,15 @@ document.getElementById('btn-profilo-salva').addEventListener('click', async () 
     if (!renderer) init();
 });
 
-// ------------------------------------------------------------------ UI ingresso (due passi: Inizia → racconto → Continua)
-const uiStep1    = document.getElementById('ui-step1');
-const uiRacconto = document.getElementById('ui-racconto');
-const raccontoEl = document.getElementById('racconto');
+// ------------------------------------------------------------------ UI ingresso (solo Inizia)
+const uiStep1 = document.getElementById('ui-step1');
 
 function _resetUiIngresso() {
     uiStep1?.classList.remove('nascosto');
-    uiRacconto?.classList.remove('visibile');
-    if (raccontoEl) raccontoEl.value = '';
+    _nascondiBtnFineRiflessione();
+    document.getElementById('testo-sessione')?.classList.remove('visibile');
+    const testoEl = document.getElementById('testo-sessione-testo');
+    if (testoEl) testoEl.textContent = '';
 }
 
 document.getElementById('inizia').addEventListener('click', async () => {
@@ -677,11 +797,14 @@ document.getElementById('inizia').addEventListener('click', async () => {
     _postMostrato = false;
     _esperienzaFinita = false;
     _inRiflessione = false;
+    _riflessioneCompletata = false;
     _seriePre  = { valenza: [], arousal: [] };
     _seriePost = { valenza: [], arousal: [] };
-    uiStep1?.classList.add('nascosto');
-    uiRacconto?.classList.add('visibile');
-    raccontoEl?.focus();
+    _testoSessione = '';
+    _tInizio = Date.now();
+    _analizzatore.inizia();
+    ui.classList.add('nascosto');
+    stato.textContent = 'esperienza in corso';
     try { await audio._ensure(); } catch (_) {}
 
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -692,60 +815,85 @@ document.getElementById('inizia').addEventListener('click', async () => {
     }
 });
 
-document.getElementById('continua').addEventListener('click', async () => {
-    const testo = raccontoEl?.value.trim() || '';
-    _testoSessione = testo;
-    _tInizio = Date.now();
-    _analizzatore.inizia();
-    ui.classList.add('nascosto');
-    stato.textContent = 'esperienza in corso';
-
-    // Mostra il racconto come testo persistente durante la sessione
-    const testoEl = document.getElementById('testo-sessione-testo');
-    if (testoEl) testoEl.textContent = testo || '';
-    if (testo) setTimeout(() => document.getElementById('testo-sessione')?.classList.add('visibile'), 3000);
-
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-            tipo:    'racconto',
-            testo,
-            profilo: _profiloUtente || {},
-        }));
-    }
-    try { await audio._ensure(); } catch (_) {}
+document.getElementById('btn-fine-riflessione')?.addEventListener('click', () => {
+    _concludiRiflessione();
 });
 
-raccontoEl?.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        document.getElementById('continua').click();
-    }
+// ------------------------------------------------------------------ Flyout controlli sinistra
+const ctrlItemProfiloEl = document.getElementById('ctrl-item-profilo');
+const ctrlItemVolumeEl  = document.getElementById('ctrl-item-volume');
+
+function _posizionaFlyout(btn, flyout) {
+    if (!btn || !flyout) return;
+    const r = btn.getBoundingClientRect();
+    flyout.style.left = `${Math.round(r.right + 7)}px`;
+    flyout.style.top  = `${Math.round(r.top + r.height / 2)}px`;
+}
+
+function _chiudiFlyout(...els) {
+    for (const el of els) el?.classList.remove('aperto');
+    ctrlItemProfiloEl?.classList.remove('aperto');
+    ctrlItemVolumeEl?.classList.remove('aperto');
+}
+function _toggleFlyout(el, btn, itemEl, altro = null) {
+    if (!el) return false;
+    const apri = !el.classList.contains('aperto');
+    if (altro) _chiudiFlyout(altro);
+    el.classList.toggle('aperto', apri);
+    itemEl?.classList.toggle('aperto', apri);
+    if (apri) _posizionaFlyout(btn, el);
+    return apri;
+}
+
+const btnProfiloToggle = document.getElementById('btn-profilo-toggle');
+btnProfiloToggle?.addEventListener('click', e => {
+    e.stopPropagation();
+    const aperto = _toggleFlyout(utenteFlyout, btnProfiloToggle, ctrlItemProfiloEl, volumeFlyout);
+    btnProfiloToggle.setAttribute('aria-expanded', aperto ? 'true' : 'false');
 });
 
-// Pulsante muto + slider volume
+// Pulsante volume + slider
 const volumeSlider = document.getElementById('volume-slider');
+const btnMuto = document.getElementById('btn-muto');
 
-document.getElementById('btn-muto').addEventListener('click', async () => {
+btnMuto?.addEventListener('click', async e => {
+    e.stopPropagation();
     try { await audio._ensure(); } catch (_) {}
-    const muted = audio.toggleMute();
-    const btn = document.getElementById('btn-muto');
-    if (muted) {
-        btn.textContent = '🔇 Muto';
-        btn.classList.add('attivo');
-    } else {
-        btn.textContent = '🔊 Musica';
-        btn.classList.remove('attivo');
-    }
+    const aperto = _toggleFlyout(volumeFlyout, btnMuto, ctrlItemVolumeEl, utenteFlyout);
+    btnMuto.setAttribute('aria-expanded', aperto ? 'true' : 'false');
+});
+
+window.addEventListener('resize', () => {
+    if (utenteFlyout?.classList.contains('aperto')) _posizionaFlyout(btnProfiloToggle, utenteFlyout);
+    if (volumeFlyout?.classList.contains('aperto')) _posizionaFlyout(btnMuto, volumeFlyout);
 });
 
 volumeSlider?.addEventListener('input', async () => {
     try { await audio._ensure(); } catch (_) {}
     audio.setMasterVolume(Number(volumeSlider.value) / 100);
+    btnMuto?.classList.remove('attivo');
+});
+
+btnMuto?.addEventListener('dblclick', async e => {
+    e.preventDefault();
+    e.stopPropagation();
+    try { await audio._ensure(); } catch (_) {}
+    const muted = audio.toggleMute();
+    btnMuto.classList.toggle('attivo', muted);
+    btnMuto.title = muted ? 'Riattiva musica (doppio clic)' : 'Volume musica (doppio clic per muto)';
+});
+
+document.addEventListener('click', e => {
+    if (e.target.closest('#controls-left')) return;
+    _chiudiFlyout(utenteFlyout, volumeFlyout);
+    btnProfiloToggle?.setAttribute('aria-expanded', 'false');
+    btnMuto?.setAttribute('aria-expanded', 'false');
 });
 
 // Pulsante info / modal
 const modalInfo = document.getElementById('modal-info');
 document.getElementById('btn-info').addEventListener('click', () => {
+    _chiudiFlyout(utenteFlyout, volumeFlyout);
     modalInfo.classList.add('visibile');
 });
 document.getElementById('modal-chiudi').addEventListener('click', () => {
@@ -756,29 +904,15 @@ modalInfo.addEventListener('click', e => {
 });
 
 // Calendario dal top-right
-document.getElementById('btn-calendario-top')?.addEventListener('click', () => apriCalendario());
-
-// ------------------------------------------------------------------ Web Speech API (racconto pre-meditazione)
-_initVoice(
-    document.getElementById('btn-mic'),
-    document.getElementById('racconto'),
-    null,
-    () => {}
-);
-
-// ------------------------------------------------------------------ Panel post-meditazione
-_initVoice(
-    document.getElementById('btn-mic-post'),
-    document.getElementById('testo-post'),
-    document.getElementById('mic-post-stato'),
-    () => {}
-);
-
-document.getElementById('btn-salva-post').addEventListener('click', async () => {
-    await _completaSessione(document.getElementById('testo-post').value.trim());
+document.getElementById('btn-calendario-top')?.addEventListener('click', () => {
+    _chiudiFlyout(utenteFlyout, volumeFlyout);
+    apriCalendario();
 });
 
+// ------------------------------------------------------------------ Panel post-meditazione (riflessione via particelle + voce)
+
 async function _completaSessione(riflessione) {
+    _nascondiBtnFineRiflessione();
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ tipo: 'riflessione_post', testo: riflessione }));
     }
@@ -788,7 +922,7 @@ async function _completaSessione(riflessione) {
     const emozionePost = _analizzatorePost?.report() || {};
     _analizzatorePost?.ferma();
 
-    document.getElementById('panel-post').classList.remove('visibile');
+    document.getElementById('testo-sessione')?.classList.remove('visibile');
 
     // Chiama Claude con dati pre+post
     const payload = {

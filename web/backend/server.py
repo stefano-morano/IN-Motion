@@ -38,6 +38,7 @@ WEB = BACKEND.parent
 VISUALS = WEB.parent / "visuals"
 FRONTEND = WEB / "frontend"
 LIBRERIA = VISUALS / "musica_libreria"
+ASSETS = WEB / "assets"
 
 # ------------------------------------------------------------------ inietta stub PRIMA di importare esperienza.py
 # esperienza.py fa `import musica` e `import stacco`: li sostituiamo
@@ -75,6 +76,7 @@ app.add_middleware(
 )
 
 app.mount("/musica", StaticFiles(directory=str(LIBRERIA)), name="musica")
+app.mount("/assets", StaticFiles(directory=str(ASSETS)), name="assets")
 
 
 # ------------------------------------------------------------------ analisi emotiva

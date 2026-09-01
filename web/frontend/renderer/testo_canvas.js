@@ -1,3 +1,5 @@
+import { TESTO_LARGHEZZA, TESTO_ALTEZZA, CAM_TX, CAM_TY } from './scena.js';
+
 /**
  * testo_canvas.js — campiona le posizioni di una scritta da Canvas 2D.
  *
@@ -6,13 +8,6 @@
  * le coordinate nel sistema di riferimento 3D della scena.
  */
 
-const TESTO_LARGHEZZA = 1.9;
-const TESTO_ALTEZZA   = 0.9;
-const CAM_TX  = 0.0;
-const CAM_TY  = 0.0;
-
-// Canvas 800×300: spazio sufficiente per testo a 2 righe con font grande.
-// 800×300=240K pixel × 11 testi ≈ 2.6M iterazioni (<<10M con 1280×720).
 const CW = 800, CH = 300;
 const _canvas = document.createElement('canvas');
 _canvas.width  = CW;

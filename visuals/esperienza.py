@@ -52,12 +52,13 @@ ATTESA = ["PREPARO LA TUA MEDITAZIONE", "CONCENTRATI SUL TUO RESPIRO"]
 CHIUSURA = ["È IL MOMENTO DI MEDITARE", "CHIUDI GLI OCCHI QUANDO TI SENTI PRONTO"]
 ATTESA_MANDALA = ["STO DISEGNANDO IL TUO MANDALA"]
 INVITO_DISSOLUZIONE = ["MUOVI IL VOLTO E LIBERATI DEL MANDALA"]
+INVITO_RIFLESSIONE = "RACCONTAMI COSA PROVI DOPO LA MEDITAZIONE"
 COMMIATO = ["NIENTE DI BELLO VA TRATTENUTO", "GRAZIE, A PRESTO"]
 
 # Tutte quelle che non dipendono dal racconto: TD puo' disegnarle in anticipo,
 # una volta sola, prima che l'esperienza cominci.
 SCRITTE_FISSE = (SALUTO + INVITO + ATTESA + ATTESA_MANDALA
-                 + INVITO_DISSOLUZIONE + COMMIATO + CHIUSURA)
+                 + INVITO_DISSOLUZIONE + [INVITO_RIFLESSIONE] + COMMIATO + CHIUSURA)
 
 # ---------- tempi (secondi) ----------
 # REGOLA: nessuna scritta resta a schermo meno di LEGGIBILE, e questo tempo si
@@ -125,6 +126,7 @@ MAX_DISSOLUZIONE = 60.0      # se non scuote mai, si prosegue lo stesso
 # qualcosa che non sta accadendo, ed e' peggio del silenzio.
 STATI_CHE_ASCOLTANO_GLI_OCCHI = (
     "invito", "ascolto", "invito_meditazione", "meditazione",
+    "riflessione_ascolto",
 )
 STACCO_SEMPRE = False    # True: stacca ad ogni cambio, anche quando e' a vuoto
 
@@ -156,6 +158,7 @@ class Esperienza:
         self._indice_blocco = 0
         self._t_blocco = 0.0
         self._durata_meditazione = 0.0
+        self._riflessione_occhi_chiusi = False
 
         self.copione = []
         self.indice = 0
@@ -379,14 +382,29 @@ class Esperienza:
             if self.movimento.abbastanza() or trascorso >= MAX_DISSOLUZIONE:
                 print(f"  disperso (energia del gesto: {self.movimento.energia:.1f})")
                 if self.sincronia is not None:
-                    self._vai("riflessione", ora)
-                    self.scena.mostra("volto", transizione=TRANSIZIONE)
+                    self._riflessione_occhi_chiusi = False
+                    self._vai("riflessione_ascolto", ora)
+                    self._mostra_blocco([INVITO_RIFLESSIONE], 0, ora,
+                                        transizione=TRANSIZIONE)
                     ui_apri = getattr(self.scena, "ui_riflessione_apri", None)
                     if ui_apri:
                         ui_apri()
+                    if self.ascolto:
+                        self.ascolto.apri()
+                        self.ascolto.inizia()
                 else:
                     self._vai("commiato", ora)
                     self._mostra_blocco(COMMIATO, 0, ora, transizione=TRANSIZIONE_LUNGA)
+
+        elif self.stato == "riflessione_ascolto":
+            finito = (
+                self.sincronia
+                and self.sincronia.riflessione_inviata.is_set()
+            ) or trascorso >= MAX_ATTESA_GESTO
+            if finito:
+                if self.ascolto:
+                    self.ascolto.ferma()
+                self._vai("riflessione", ora)
 
         elif self.stato == "riflessione":
             if self.sincronia and self.sincronia.riflessione_inviata.is_set():

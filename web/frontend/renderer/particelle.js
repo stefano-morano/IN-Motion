@@ -7,11 +7,7 @@
 
 import * as THREE from 'three';
 import { PostProcessing } from './post.js';
-
-const ASPETTO = 16.0 / 9.0;
-const SCALA   = 2.0;
-const W_WORLD = ASPETTO * SCALA;  // 3.556
-const H_WORLD = SCALA;            // 2.0
+import { larghezzaMondo, altezzaMondo } from './scena.js';
 
 export class RendererParticelle {
     constructor(canvas) {
@@ -28,13 +24,10 @@ export class RendererParticelle {
         // Scena
         this._scene = new THREE.Scene();
 
-        // Camera ortografica: il sistema di coordinate coincide con i valori
-        // calcolati da logica.js ([-1.78,1.78] × [-1,1])
-        this._camera = new THREE.OrthographicCamera(
-            -W_WORLD / 2, W_WORLD / 2,
-             H_WORLD / 2, -H_WORLD / 2,
-            -10, 10
-        );
+        // Camera ortografica: frustum adattato al rapporto d'aspetto della finestra
+        const hw = larghezzaMondo() / 2;
+        const hh = altezzaMondo() / 2;
+        this._camera = new THREE.OrthographicCamera(-hw, hw, hh, -hh, -10, 10);
 
         // Geometria particelle
         const n = 13664;
@@ -47,7 +40,7 @@ export class RendererParticelle {
 
         // Materiale: fusione additiva senza depth test
         const mat = new THREE.PointsMaterial({
-            size: 0.018,
+            size: 0.021,
             vertexColors: true,
             blending: THREE.AdditiveBlending,
             depthTest: false,
@@ -114,22 +107,12 @@ export class RendererParticelle {
         const h = window.innerHeight;
         this._renderer.setSize(w, h);
         this._post.setSize(w, h);
-        // Mantiene le proporzioni della scena
-        const sceneAspect = W_WORLD / H_WORLD;
-        const winAspect   = w / h;
-        if (winAspect > sceneAspect) {
-            const scala = winAspect / sceneAspect;
-            this._camera.left   = -W_WORLD / 2 * scala;
-            this._camera.right  =  W_WORLD / 2 * scala;
-            this._camera.top    =  H_WORLD / 2;
-            this._camera.bottom = -H_WORLD / 2;
-        } else {
-            const scala = sceneAspect / winAspect;
-            this._camera.left   = -W_WORLD / 2;
-            this._camera.right  =  W_WORLD / 2;
-            this._camera.top    =  H_WORLD / 2 * scala;
-            this._camera.bottom = -H_WORLD / 2 * scala;
-        }
+        const hw = larghezzaMondo() / 2;
+        const hh = altezzaMondo() / 2;
+        this._camera.left   = -hw;
+        this._camera.right  =  hw;
+        this._camera.top    =  hh;
+        this._camera.bottom = -hh;
         this._camera.updateProjectionMatrix();
     }
 }

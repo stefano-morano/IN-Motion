@@ -115,10 +115,25 @@ Rispondi SOLO con un oggetto JSON valido, senza testo aggiuntivo:
 @app.post("/analisi")
 async def analisi_emozioni(body: dict = Body(...)):
     """Riceve dati facciali + racconto + profilo, chiama Claude, restituisce analisi emotiva."""
-    racconto  = (body.get("racconto") or "")[:500]
-    emozioni  = body.get("emozioni") or {}
-    durata    = body.get("durata_minuti", 0)
-    profilo   = body.get("profilo") or {}
+    racconto      = (body.get("racconto") or "")[:500]
+    riflessione   = (body.get("riflessione") or "")[:400]
+    emozioni      = body.get("emozioni") or {}
+    emozioni_post = body.get("emozioni_post") or {}
+    durata        = body.get("durata_minuti", 0)
+    profilo       = body.get("profilo") or {}
+
+    # Arricchisce il prompt se c'è anche la riflessione post
+    contesto_post = ""
+    if riflessione:
+        vPost = emozioni_post.get("valenza_media", None)
+        aPost = emozioni_post.get("arousal_medio", None)
+        contesto_post = f"""
+Dopo la meditazione l'utente ha riflettuto:
+"{riflessione}"
+Dati facciali post-meditazione:
+- Valenza: {vPost:.2f if vPost is not None else 'n/d'}
+- Arousal: {aPost:.2f if aPost is not None else 'n/d'}
+"""
 
     prompt = _PROMPT_ANALISI.format(
         nome        = profilo.get("nome", "utente"),
@@ -133,7 +148,7 @@ async def analisi_emozioni(body: dict = Body(...)):
         brow        = emozioni.get("tensione_brow",   0.0),
         arco        = emozioni.get("arco_emotivo",    "sconosciuto"),
         n_campioni  = emozioni.get("n_campioni",       0),
-    )
+    ) + contesto_post
 
     try:
         risposta = _ANTHROPIC.messages.create(
@@ -181,6 +196,16 @@ async def static(path: str):
 RACCONTO_DEFAULT = "oggi mi sento agitato e non riesco a fermare i pensieri"
 
 
+def _arricchisci_racconto(racconto: str, profilo: dict) -> str:
+    if not profilo:
+        return racconto
+    nome = profilo.get("nome", "")
+    obiettivo = profilo.get("obiettivo", "")
+    if obiettivo:
+        return f"{racconto}\n[Profilo: {nome}, obiettivo: {obiettivo}]"
+    return racconto
+
+
 class _Punto:
     """Wrapper leggero per rendere le coordinate [[x,y,z]] compatibili
     con i moduli occhi.py e movimento.py che si aspettano .x .y .z."""
@@ -205,6 +230,8 @@ class _Sessione:
         self._punti = None
         self._lock = threading.Lock()
         self._audio: queue.SimpleQueue = queue.SimpleQueue()
+        self.riflessione_inviata = threading.Event()
+        self.risultati_visti = threading.Event()
 
     def set_punti(self, raw):
         with self._lock:
@@ -244,36 +271,37 @@ async def ws_handler(ws: WebSocket):
     tappeto = MusicaWS(coda, "tappeto")
     ascolto = AscoltoWS(coda, stato)
 
-    # 1. Aspetta il racconto dal browser (timeout 60s)
+    # 1. Pronto, poi aspetta "inizia" o "racconto" (timeout 5 min)
     await ws.send_json({"tipo": "pronto"})
-    racconto = RACCONTO_DEFAULT
+    racconto = ""
     profilo_utente: dict = {}
     try:
-        msg = await asyncio.wait_for(ws.receive_json(), timeout=60.0)
-        if msg.get("tipo") == "racconto":
-            racconto       = msg.get("testo") or RACCONTO_DEFAULT
-            profilo_utente = msg.get("profilo") or {}
+        msg = await asyncio.wait_for(ws.receive_json(), timeout=300.0)
+        tipo = msg.get("tipo")
+        profilo_utente = msg.get("profilo") or {}
+        if tipo == "racconto":
+            racconto = msg.get("testo") or RACCONTO_DEFAULT
+        elif tipo != "inizia":
+            print(f"racconto: messaggio inatteso ({tipo!r}), uso default")
+            racconto = RACCONTO_DEFAULT
     except Exception as exc:
         print(f"racconto: errore/timeout ({exc}), uso default")
+        racconto = RACCONTO_DEFAULT
 
-    # Arricchisce il testo con il contesto del profilo per una meditazione più personalizzata
-    if profilo_utente:
-        nome      = profilo_utente.get("nome", "")
-        obiettivo = profilo_utente.get("obiettivo", "")
-        if obiettivo:
-            racconto = f"{racconto}\n[Profilo: {nome}, obiettivo: {obiettivo}]"
-
-    print(f'racconto: "{racconto[:120]}"')
+    racconto = _arricchisci_racconto(racconto, profilo_utente)
+    print(f'racconto: "{racconto[:120]}"' if racconto else "racconto: (in attesa dal browser)")
 
     # 2. Avvia il ciclo dell'esperienza in un thread separato
-    #    (esperienza.py è sincrona: non gira in asyncio)
     stop_ev = threading.Event()
+    esp_ref: dict = {"esp": None}
 
     def _loop():
         try:
             esp = _exp_mod.Esperienza(
-                scena, racconto, ascolto, musica=musica, tappeto=tappeto
+                scena, racconto, ascolto, musica=musica, tappeto=tappeto,
+                sincronia=stato,
             )
+            esp_ref["esp"] = esp
             esp.avvia(time.time())
             while not esp.finita and not stop_ev.is_set():
                 punti = _adatta_punti(stato.get_punti())
@@ -283,6 +311,8 @@ async def ws_handler(ws: WebSocket):
             import traceback
             print(f"esperienza: {exc}")
             traceback.print_exc()
+        finally:
+            coda.put({"tipo": "fine"})
 
     threading.Thread(target=_loop, daemon=True).start()
 
@@ -315,6 +345,19 @@ async def ws_handler(ws: WebSocket):
                     dati = json.loads(raw["text"])
                     if dati.get("tipo") == "frame":
                         stato.set_punti(dati.get("punti"))
+                    elif dati.get("tipo") == "racconto":
+                        testo = _arricchisci_racconto(
+                            dati.get("testo") or RACCONTO_DEFAULT,
+                            dati.get("profilo") or profilo_utente,
+                        )
+                        esp = esp_ref.get("esp")
+                        if esp:
+                            esp.imposta_racconto(testo)
+                            print(f'racconto aggiornato: "{testo[:120]}"')
+                    elif dati.get("tipo") == "riflessione_post":
+                        stato.riflessione_inviata.set()
+                    elif dati.get("tipo") == "risultati_visti":
+                        stato.risultati_visti.set()
                 except (json.JSONDecodeError, Exception):
                     pass
 

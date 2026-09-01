@@ -129,7 +129,8 @@ export async function salvaProfilo(uid, dati) {
 
 /**
  * Salva una meditazione giornaliera: users/{uid}/meditazioni/{auto-id}
- * Include racconto, riflessione post, dati facciali prima/dopo, analisi Claude.
+ * Include racconto, riflessione post, serie temporali, spiegazioni in italiano,
+ * dati facciali prima/dopo, analisi Claude.
  */
 export async function salvaSessioneGiornaliera(uid, dati) {
     if (!_db) return null;

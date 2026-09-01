@@ -68,3 +68,9 @@ class ScenaWS:
 
     def azzera(self):
         self._coda.put({"tipo": "azzera"})
+
+    def ui_riflessione_apri(self):
+        self._coda.put({"tipo": "ui", "fase": "riflessione", "azione": "apri"})
+
+    def ui_nascondi(self):
+        self._coda.put({"tipo": "ui", "fase": "nascondi"})

@@ -24,6 +24,14 @@ export class AnalizzatoreEmozioni {
 
     ferma() { this._attivo = false; }
 
+    /** Serie temporali (1 campione/s) per i grafici di riepilogo. */
+    serie() {
+        return {
+            valenza: this._campioni.map(c => c.valenza),
+            arousal: this._campioni.map(c => c.arousal),
+        };
+    }
+
     /**
      * Chiama ogni frame con result.faceBlendshapes[0].categories
      * (array di {categoryName, score} da MediaPipe FaceLandmarker).

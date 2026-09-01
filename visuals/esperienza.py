@@ -135,10 +135,11 @@ PERMANENZA_COMMIATO = LEGGIBILE
 
 class Esperienza:
     def __init__(self, scena: modulo_scena.Scena, racconto: str, ascolto=None,
-                 musica=None, tappeto=None):
+                 musica=None, tappeto=None, sincronia=None):
         self.scena = scena
         self.racconto = racconto      # ripiego se il microfono non c'e' o non sente
         self.ascolto = ascolto
+        self.sincronia = sincronia    # web: sincronizza riflessione e risultati col browser
         self.occhi = modulo_occhi.Rilevatore()
         self.movimento = modulo_movimento.Movimento()
         self._generazione_avviata = False
@@ -173,6 +174,10 @@ class Esperienza:
         self.stacco = modulo_stacco.Stacco(
             (self.tappeto, self.musica), modulo_musica.SAMPLE_RATE
         )
+
+    def imposta_racconto(self, racconto: str):
+        """Aggiorna il racconto scritto dall'utente prima della generazione."""
+        self.racconto = racconto or self.racconto
 
     # ---------- avvio ----------
 
@@ -373,6 +378,28 @@ class Esperienza:
             self.movimento.aggiorna(punti, ora)
             if self.movimento.abbastanza() or trascorso >= MAX_DISSOLUZIONE:
                 print(f"  disperso (energia del gesto: {self.movimento.energia:.1f})")
+                if self.sincronia is not None:
+                    self._vai("riflessione", ora)
+                    self.scena.mostra("volto", transizione=TRANSIZIONE)
+                    ui_apri = getattr(self.scena, "ui_riflessione_apri", None)
+                    if ui_apri:
+                        ui_apri()
+                else:
+                    self._vai("commiato", ora)
+                    self._mostra_blocco(COMMIATO, 0, ora, transizione=TRANSIZIONE_LUNGA)
+
+        elif self.stato == "riflessione":
+            if self.sincronia and self.sincronia.riflessione_inviata.is_set():
+                self.sincronia.riflessione_inviata.clear()
+                self._vai("risultati", ora)
+                self.scena.mostra("volto", transizione=1.0)
+
+        elif self.stato == "risultati":
+            if self.sincronia and self.sincronia.risultati_visti.is_set():
+                self.sincronia.risultati_visti.clear()
+                ui_nascondi = getattr(self.scena, "ui_nascondi", None)
+                if ui_nascondi:
+                    ui_nascondi()
                 self._vai("commiato", ora)
                 self._mostra_blocco(COMMIATO, 0, ora, transizione=TRANSIZIONE_LUNGA)
 

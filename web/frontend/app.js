@@ -13,7 +13,8 @@ import { campionaTesto }      from './renderer/testo_canvas.js';
 import { AnalizzatoreEmozioni } from './renderer/emozioni.js';
 import { loginGoogle, logout, onAuth, salvaSessione, inizializza,
          loginEmail, registraEmail, resetPassword,
-         caricaProfilo, salvaProfilo } from './firebase.js';
+         caricaProfilo, salvaProfilo,
+         salvaSessioneGiornaliera, caricaSessioniCalendario } from './firebase.js';
 
 // ------------------------------------------------------------------ stato globale
 let ws;
@@ -29,6 +30,22 @@ let _testoSessione  = '';
 let _profiloUtente  = null;                    // dati profilo (nome, età, obiettivo…)
 const _analizzatore = new AnalizzatoreEmozioni();
 
+// Dati per grafici e storico
+let _emozionePre    = null;   // report facciale pre-meditazione
+let _seriePre       = { valenza: [], arousal: [] };
+let _seriePost      = { valenza: [], arousal: [] };
+let _durataSessione = 0;
+let _analizzatorePost = null; // analizzatore per la fase post
+let _tInizioPost    = false;  // true durante la riflessione post
+let _calSessioni    = {};     // { 'YYYY-MM-DD': [{...}] } per il calendario
+let _calMese        = new Date();
+let _calCharts      = [];       // istanze Chart.js nel dettaglio calendario
+let _sessioneIniziata = false;
+let _pendingInizia    = false;
+let _postMostrato     = false;
+let _esperienzaFinita = false;
+let _inRiflessione    = false;
+
 const WS_URL = `ws://${location.host}/ws`;
 const stato = document.getElementById('stato');
 const ui    = document.getElementById('ui');
@@ -37,6 +54,8 @@ const ui    = document.getElementById('ui');
 class AudioManager {
     constructor() {
         this.ctx = null;
+        this._masterVolume = 1;
+        this._muted = false;
         this._sorgenti = {
             principale: { node: null, gainVol: null, gainAtt: null, volume: 0 },
             tappeto:    { node: null, gainVol: null, gainAtt: null, volume: 0 },
@@ -51,9 +70,32 @@ class AudioManager {
         if (!this.ctx) {
             this.ctx = new AudioContext({ sampleRate: 44100 });
             this._masterGain = this.ctx.createGain();
+            this._masterGain.gain.value = this._muted ? 0 : this._masterVolume;
             this._masterGain.connect(this.ctx.destination);
         }
         if (this.ctx.state === 'suspended') await this.ctx.resume();
+    }
+
+    setMasterVolume(livello) {
+        this._masterVolume = Math.max(0, Math.min(1, livello));
+        if (!this.ctx || !this._masterGain || this._muted) return;
+        const t = this.ctx.currentTime;
+        this._masterGain.gain.cancelScheduledValues(t);
+        this._masterGain.gain.setValueAtTime(this._masterGain.gain.value, t);
+        this._masterGain.gain.linearRampToValueAtTime(this._masterVolume, t + 0.08);
+    }
+
+    toggleMute() {
+        if (!this.ctx || !this._masterGain) return this._muted;
+        this._muted = !this._muted;
+        const t = this.ctx.currentTime;
+        this._masterGain.gain.cancelScheduledValues(t);
+        this._masterGain.gain.setValueAtTime(this._masterGain.gain.value, t);
+        this._masterGain.gain.linearRampToValueAtTime(
+            this._muted ? 0 : this._masterVolume,
+            t + 0.3
+        );
+        return this._muted;
     }
 
     async _carica(url) {
@@ -116,16 +158,6 @@ class AudioManager {
             s.gainAtt.gain.setValueAtTime(s.gainAtt.gain.value, t);
             s.gainAtt.gain.linearRampToValueAtTime(val, t + (fade || 0.1));
         }
-    }
-
-    toggleMute() {
-        if (!this.ctx || !this._masterGain) return;
-        this._muted = !this._muted;
-        const t = this.ctx.currentTime;
-        this._masterGain.gain.cancelScheduledValues(t);
-        this._masterGain.gain.setValueAtTime(this._masterGain.gain.value, t);
-        this._masterGain.gain.linearRampToValueAtTime(this._muted ? 0 : 1, t + 0.3);
-        return this._muted;
     }
 
     stacco(chiusura, discesa, respiro, ritorno) {
@@ -216,12 +248,59 @@ class AudioManager {
 
 const audio = new AudioManager();
 
+function _inviaInizia() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+        tipo:    'inizia',
+        profilo: _profiloUtente || {},
+    }));
+}
+
+function _apriRiflessioneInEsperienza() {
+    if (_inRiflessione) return;
+    _inRiflessione = true;
+    _postMostrato = true;
+
+    document.getElementById('testo-sessione')?.classList.remove('visibile');
+
+    _durataSessione = Math.round((Date.now() - _tInizio) / 1000 / 60);
+    _seriePre       = _analizzatore.serie();
+    _emozionePre    = _analizzatore.report();
+    _analizzatore.ferma();
+    _tInizio = null;
+
+    _analizzatorePost = new AnalizzatoreEmozioni();
+    _analizzatorePost.inizia();
+    _tInizioPost = true;
+
+    const testoPost = document.getElementById('testo-post');
+    if (testoPost) testoPost.value = '';
+    document.getElementById('panel-post')?.classList.add('visibile');
+    testoPost?.focus();
+    stato.textContent = 'come ti senti adesso?';
+}
+
+function _nascondiOverlayEsperienza() {
+    document.getElementById('panel-post')?.classList.remove('visibile');
+    document.getElementById('panel-risultati')?.classList.remove('visibile');
+    _inRiflessione = false;
+}
+
 // ------------------------------------------------------------------ WebSocket
 function connect() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        return;
+    }
     stato.textContent = 'connessione...';
     ws = new WebSocket(WS_URL);
 
-    ws.onopen = () => { stato.textContent = 'connesso'; };
+    ws.onopen = () => {
+        stato.textContent = 'connesso';
+        if (_pendingInizia) {
+            _inviaInizia();
+            _pendingInizia = false;
+        }
+    };
 
     ws.onmessage = async (ev) => {
         // I messaggi audio arrivano come Blob/ArrayBuffer, non JSON
@@ -235,12 +314,16 @@ function connect() {
         console.log('ws ←', tipo, msg.scena || msg.azione || '');
 
         if (tipo === 'pronto') {
-            // Mostra la UI per inserire il racconto
-            ui.classList.remove('nascosto');
+            if (!uiRacconto?.classList.contains('visibile')) {
+                _resetUiIngresso();
+                ui.classList.remove('nascosto');
+            }
             stato.textContent = 'pronto';
 
+        } else if (!_sessioneIniziata) {
+            return;
+
         } else if (tipo === 'prepara') {
-            // Precalcola le posizioni delle scritte
             const t0 = performance.now();
             logica.prepara_testi(msg.frasi, (frase, n) => campionaTesto(frase, n));
             console.log(`prepara: ${msg.frasi.length} scritte in ${(performance.now()-t0).toFixed(0)}ms`);
@@ -281,47 +364,26 @@ function connect() {
             } else if (msg.azione === 'ferma') {
                 audio.ferma();
             }
+
+        } else if (tipo === 'ui') {
+            if (msg.fase === 'riflessione' && msg.azione === 'apri') {
+                _apriRiflessioneInEsperienza();
+            } else if (msg.fase === 'nascondi') {
+                _nascondiOverlayEsperienza();
+            }
+
+        } else if (tipo === 'fine') {
+            _nascondiOverlayEsperienza();
+            _esperienzaFinita = true;
+            stato.textContent = 'a presto';
         }
     };
 
     ws.onclose = () => {
         stato.textContent = 'disconnesso';
-        // Analisi emotiva + salvataggio Firestore al termine della sessione
-        if (_utenteCorrente && _tInizio) {
-            const durata = Math.round((Date.now() - _tInizio) / 1000 / 60);
-            const reportFacciale = _analizzatore.report();
-            _analizzatore.ferma();
-            _tInizio = null;
-
-            // Chiama /analisi (Claude interpreta i dati facciali)
-            const payload = {
-                racconto:       _testoSessione.slice(0, 300),
-                durata_minuti:  durata,
-                emozioni:       reportFacciale || {},
-                profilo:        _profiloUtente || {},   // dati utente per personalizzare
-            };
-            fetch('/analisi', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            })
-            .then(r => r.json())
-            .then(({ analisi, emozioni }) => {
-                console.log('analisi emotiva:', analisi);
-                salvaSessione(_utenteCorrente.uid, {
-                    ...payload,
-                    emozioni_facciali: emozioni,
-                    analisi_claude:    analisi,
-                    completata:        durata >= 2,
-                });
-            })
-            .catch(e => {
-                console.warn('analisi: errore', e);
-                // Salva comunque senza analisi
-                salvaSessione(_utenteCorrente.uid, { ...payload, completata: durata >= 2 });
-            });
+        if (_sessioneIniziata && !_esperienzaFinita) {
+            setTimeout(connect, 2000);
         }
-        setTimeout(connect, 2000);
     };
     ws.onerror = () => ws.close();
 }
@@ -373,7 +435,8 @@ function loop(timestamp) {
                 // Salva blend shapes per l'analisi emotiva
                 if (res.faceBlendshapes?.length > 0) {
                     blendshapes = res.faceBlendshapes[0].categories;
-                    if (_tInizio) _analizzatore.aggiorna(blendshapes);
+                    if (_tInizio)      _analizzatore.aggiorna(blendshapes);
+                    if (_tInizioPost)  _analizzatorePost?.aggiorna(blendshapes);
                 }
                 // Manda al server ~30fps
                 if (ws && ws.readyState === WebSocket.OPEN && ora - _lastSend > SEND_INTERVAL) {
@@ -404,9 +467,15 @@ async function init() {
     await logica.init();
 
     await initFaceTracking();
-    connect();
+    _mostraUiIngresso();
 
     requestAnimationFrame(loop);
+}
+
+function _mostraUiIngresso() {
+    _resetUiIngresso();
+    ui.classList.remove('nascosto');
+    stato.textContent = 'pronto';
 }
 
 // ------------------------------------------------------------------ Firebase auth
@@ -592,32 +661,70 @@ document.getElementById('btn-profilo-salva').addEventListener('click', async () 
     if (!renderer) init();
 });
 
-// ------------------------------------------------------------------ UI
+// ------------------------------------------------------------------ UI ingresso (due passi: Inizia → racconto → Continua)
+const uiStep1    = document.getElementById('ui-step1');
+const uiRacconto = document.getElementById('ui-racconto');
+const raccontoEl = document.getElementById('racconto');
+
+function _resetUiIngresso() {
+    uiStep1?.classList.remove('nascosto');
+    uiRacconto?.classList.remove('visibile');
+    if (raccontoEl) raccontoEl.value = '';
+}
+
 document.getElementById('inizia').addEventListener('click', async () => {
-    const testo = document.getElementById('racconto').value.trim();
+    _sessioneIniziata = true;
+    _postMostrato = false;
+    _esperienzaFinita = false;
+    _inRiflessione = false;
+    _seriePre  = { valenza: [], arousal: [] };
+    _seriePost = { valenza: [], arousal: [] };
+    uiStep1?.classList.add('nascosto');
+    uiRacconto?.classList.add('visibile');
+    raccontoEl?.focus();
+    try { await audio._ensure(); } catch (_) {}
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        _inviaInizia();
+    } else {
+        _pendingInizia = true;
+        connect();
+    }
+});
+
+document.getElementById('continua').addEventListener('click', async () => {
+    const testo = raccontoEl?.value.trim() || '';
     _testoSessione = testo;
     _tInizio = Date.now();
-    _analizzatore.inizia();   // avvia la raccolta blend shapes
+    _analizzatore.inizia();
     ui.classList.add('nascosto');
     stato.textContent = 'esperienza in corso';
+
+    // Mostra il racconto come testo persistente durante la sessione
+    const testoEl = document.getElementById('testo-sessione-testo');
+    if (testoEl) testoEl.textContent = testo || '';
+    if (testo) setTimeout(() => document.getElementById('testo-sessione')?.classList.add('visibile'), 3000);
+
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
             tipo:    'racconto',
             testo,
-            profilo: _profiloUtente || {},   // nome, età, sesso, obiettivo → personalizzazione AI
+            profilo: _profiloUtente || {},
         }));
     }
     try { await audio._ensure(); } catch (_) {}
 });
 
-document.getElementById('racconto').addEventListener('keydown', e => {
+raccontoEl?.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        document.getElementById('inizia').click();
+        document.getElementById('continua').click();
     }
 });
 
-// Pulsante muto
+// Pulsante muto + slider volume
+const volumeSlider = document.getElementById('volume-slider');
+
 document.getElementById('btn-muto').addEventListener('click', async () => {
     try { await audio._ensure(); } catch (_) {}
     const muted = audio.toggleMute();
@@ -631,6 +738,11 @@ document.getElementById('btn-muto').addEventListener('click', async () => {
     }
 });
 
+volumeSlider?.addEventListener('input', async () => {
+    try { await audio._ensure(); } catch (_) {}
+    audio.setMasterVolume(Number(volumeSlider.value) / 100);
+});
+
 // Pulsante info / modal
 const modalInfo = document.getElementById('modal-info');
 document.getElementById('btn-info').addEventListener('click', () => {
@@ -639,9 +751,520 @@ document.getElementById('btn-info').addEventListener('click', () => {
 document.getElementById('modal-chiudi').addEventListener('click', () => {
     modalInfo.classList.remove('visibile');
 });
-// Chiudi cliccando fuori dal box
 modalInfo.addEventListener('click', e => {
     if (e.target === modalInfo) modalInfo.classList.remove('visibile');
 });
 
-init();
+// Calendario dal top-right
+document.getElementById('btn-calendario-top')?.addEventListener('click', () => apriCalendario());
+
+// ------------------------------------------------------------------ Web Speech API (racconto pre-meditazione)
+_initVoice(
+    document.getElementById('btn-mic'),
+    document.getElementById('racconto'),
+    null,
+    () => {}
+);
+
+// ------------------------------------------------------------------ Panel post-meditazione
+_initVoice(
+    document.getElementById('btn-mic-post'),
+    document.getElementById('testo-post'),
+    document.getElementById('mic-post-stato'),
+    () => {}
+);
+
+document.getElementById('btn-salva-post').addEventListener('click', async () => {
+    await _completaSessione(document.getElementById('testo-post').value.trim());
+});
+
+async function _completaSessione(riflessione) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ tipo: 'riflessione_post', testo: riflessione }));
+    }
+
+    _tInizioPost = false;
+    _seriePost       = _analizzatorePost?.serie() || { valenza: [], arousal: [] };
+    const emozionePost = _analizzatorePost?.report() || {};
+    _analizzatorePost?.ferma();
+
+    document.getElementById('panel-post').classList.remove('visibile');
+
+    // Chiama Claude con dati pre+post
+    const payload = {
+        racconto:      _testoSessione.slice(0, 400),
+        riflessione:   riflessione.slice(0, 400),
+        durata_minuti: _durataSessione,
+        emozioni:      _emozionePre || {},
+        emozioni_post: emozionePost,
+        profilo:       _profiloUtente || {},
+    };
+
+    let analisi = {};
+    try {
+        const r = await fetch('/analisi', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        ({ analisi } = await r.json());
+    } catch (e) {
+        console.warn('analisi: errore Claude', e);
+    }
+
+    // Salva su Firestore (serie + spiegazioni per il calendario)
+    const testiRisultato = _testiRisultati(
+        _emozionePre, emozionePost, _seriePre, _seriePost
+    );
+    const datiSessione = {
+        racconto:            _testoSessione,
+        riflessione_post:    riflessione,
+        durata_minuti:       _durataSessione,
+        emozioni_pre:        _emozionePre || {},
+        emozioni_post:       emozionePost,
+        serie_pre:           _seriePre,
+        serie_post:          _seriePost,
+        spiegazione_umore:   testiRisultato.spiegaUmore,
+        spiegazione_energia: testiRisultato.spiegaEnergia,
+        analisi_claude:      analisi,
+        completata:          _durataSessione >= 2,
+    };
+
+    if (_utenteCorrente) {
+        const id = await salvaSessioneGiornaliera(_utenteCorrente.uid, datiSessione);
+        const oggi = new Date().toISOString().split('T')[0];
+        if (!_calSessioni[oggi]) _calSessioni[oggi] = [];
+        _calSessioni[oggi].unshift({ id: id || `local-${Date.now()}`, ...datiSessione, data_giorno: oggi });
+    }
+
+    // Mostra il pannello risultati con i grafici
+    mostraRisultati(_emozionePre || {}, emozionePost, analisi, _seriePre, _seriePost);
+    document.getElementById('panel-risultati').classList.add('visibile');
+}
+
+// ------------------------------------------------------------------ Grafici Chart.js
+let _chartV, _chartA;
+
+function _umoreInParole(v) {
+    if (v > 0.3)  return 'Umore aperto e leggero';
+    if (v > 0.1)  return 'Umore leggermente positivo';
+    if (v < -0.3) return 'Umore chiuso o pensieroso';
+    if (v < -0.1) return 'Umore un po\' cupo';
+    return 'Umore neutro';
+}
+
+function _energiaInParole(a) {
+    if (a > 0.65) return 'Molto attivo/a o in tensione';
+    if (a > 0.4)  return 'Vigile, con un po\' di carica';
+    if (a < 0.2)  return 'Rilassato/a e quieto/a';
+    if (a < 0.35) return 'Abbastanza calmo/a';
+    return 'Equilibrio tra calma e attenzione';
+}
+
+function _etichetteAsse(nPre, nPost) {
+    const tot = nPre + nPost;
+    const labels = new Array(tot).fill('');
+    if (tot === 0) return labels;
+    labels[0] = 'Inizio';
+    if (nPre > 1) labels[nPre - 1] = 'Fine meditazione';
+    if (nPost > 0 && nPre < tot) labels[nPre] = 'Dopo';
+    if (tot > 1) labels[tot - 1] = 'Ora';
+    return labels;
+}
+
+function _datiDueFasi(seriePre, seriePost) {
+    const nPre  = seriePre.length;
+    const nPost = seriePost.length;
+    const pad   = (src, len, offset) => {
+        const out = new Array(len).fill(null);
+        for (let i = 0; i < src.length; i++) out[offset + i] = src[i];
+        return out;
+    };
+    const len = nPre + nPost || 1;
+    return {
+        labels: _etichetteAsse(nPre, nPost),
+        len,
+        datasets: (valsPre, valsPost) => [
+            {
+                label: 'Durante la meditazione',
+                data: pad(valsPre, len, 0),
+                borderColor: 'rgba(120, 220, 160, 0.9)',
+                backgroundColor: 'rgba(120, 220, 160, 0.12)',
+                tension: 0.35,
+                pointRadius: 0,
+                pointHitRadius: 12,
+                spanGaps: false,
+            },
+            {
+                label: 'Dopo la riflessione',
+                data: pad(valsPost, len, nPre),
+                borderColor: 'rgba(255, 200, 100, 0.9)',
+                backgroundColor: 'rgba(255, 200, 100, 0.10)',
+                tension: 0.35,
+                pointRadius: 0,
+                pointHitRadius: 12,
+                spanGaps: false,
+            },
+        ],
+    };
+}
+
+function _spiegaUmore(pre, post, seriePre, seriePost) {
+    const n = seriePre.length + seriePost.length;
+    if (n < 3) {
+        return 'Non abbiamo letto abbastanza dal volto per tracciare come ti sei sentito/a. Resta davanti alla webcam con buona luce.';
+    }
+
+    const vPre  = pre?.valenza_media ?? 0;
+    const vPost = post?.valenza_media ?? vPre;
+    const d     = vPost - vPre;
+    const parti = [];
+
+    if (pre?.arco_emotivo === 'migioramento') {
+        parti.push('Durante la meditazione il volto ha mostrato un andamento verso stati più aperti.');
+    } else if (pre?.arco_emotivo === 'peggioramento') {
+        parti.push('Durante la meditazione il volto ha attraversato momenti più chiusi o pensierosi: può succedere quando emergono emozioni da elaborare.');
+    }
+
+    if (Math.abs(d) < 0.08) {
+        parti.push('Dall\'inizio alla fine il tono emotivo è rimasto abbastanza stabile.');
+    } else if (d > 0) {
+        parti.push('Rispetto all\'inizio, ora sembri uscire con un umore più leggero e disponibile.');
+    } else {
+        parti.push('Rispetto all\'inizio, ora sembri un po\' più chiuso/a o pensieroso/a: non è un fallimento, a volte la meditazione porta in superficie cose difficili.');
+    }
+
+    if (seriePost.length > 2 && Math.abs(vPost - vPre) >= 0.08) {
+        parti.push(vPost > vPre
+            ? 'Anche nel momento dopo, il volto resta su un registro un po\' più sereno.'
+            : 'Nel momento dopo la riflessione il volto resta ancora su un registro più introspettivo.');
+    }
+
+    return parti.join(' ');
+}
+
+function _spiegaEnergia(pre, post) {
+    const n = (pre?.n_campioni || 0) + (post?.n_campioni || 0);
+    if (n < 3) {
+        return 'Non abbiamo abbastanza dati per descrivere come è cambiata la tua tensione nel tempo.';
+    }
+
+    const aPre  = pre?.arousal_medio ?? 0;
+    const aPost = post?.arousal_medio ?? aPre;
+    const d     = aPost - aPre;
+    const parti = [];
+
+    parti.push(`All\'inizio eri ${_energiaInParole(aPre).toLowerCase()}.`);
+
+    if (Math.abs(d) < 0.08) {
+        parti.push('Il livello di attivazione nel corpo è rimasto più o meno lo stesso per tutta la sessione.');
+    } else if (d < -0.08) {
+        parti.push('Col passare dei minuti sembri esserti sciolto/a: meno tensione, più rilassamento.');
+    } else {
+        parti.push('Col passare dei minuti il corpo è risultato più vigile o più in allerta, come dopo uno sforzo di attenzione.');
+    }
+
+    if (post?.n_campioni >= 3) {
+        parti.push(`Dopo la riflessione risulti ${_energiaInParole(aPost).toLowerCase()}.`);
+    }
+
+    return parti.join(' ');
+}
+
+function _testiRisultati(pre, post, seriePre, seriePost) {
+    const preV  = seriePre?.valenza  || [];
+    const postV = seriePost?.valenza || [];
+    return {
+        spiegaUmore:   _spiegaUmore(pre, post, preV, postV),
+        spiegaEnergia: _spiegaEnergia(pre, post),
+    };
+}
+
+function _opzioniGrafico(tooltipFn) {
+    return {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+            legend: {
+                display: true,
+                labels: { color: 'rgba(255,255,255,0.55)', boxWidth: 14, font: { size: 11 } },
+            },
+            tooltip: {
+                callbacks: {
+                    label: ctx => {
+                        const v = ctx.parsed.y;
+                        return v == null ? null : tooltipFn(v);
+                    },
+                },
+            },
+        },
+        scales: {
+            x: {
+                ticks: { color: 'rgba(255,255,255,0.45)', font: { size: 10 }, maxRotation: 0 },
+                grid: { color: 'rgba(255,255,255,0.06)' },
+            },
+            y: {
+                ticks: { display: false },
+                grid: { color: 'rgba(255,255,255,0.06)' },
+            },
+        },
+    };
+}
+
+function _creaGraficiSuCanvas(canvasV, canvasA, seriePre, seriePost) {
+    const preV  = seriePre?.valenza  || [];
+    const postV = seriePost?.valenza || [];
+    const preA  = seriePre?.arousal  || [];
+    const postA = seriePost?.arousal || [];
+
+    const baseV = _datiDueFasi(preV, postV);
+    const baseA = _datiDueFasi(preA, postA);
+
+    Chart.defaults.color = 'rgba(255,255,255,0.45)';
+
+    const optsV = _opzioniGrafico(_umoreInParole);
+    const optsA = _opzioniGrafico(_energiaInParole);
+
+    const chartV = new Chart(canvasV, {
+        type: 'line',
+        data: { labels: baseV.labels, datasets: baseV.datasets(preV, postV) },
+        options: {
+            ...optsV,
+            scales: {
+                ...optsV.scales,
+                y: { ...optsV.scales.y, min: -1, max: 1 },
+            },
+        },
+    });
+
+    const chartA = new Chart(canvasA, {
+        type: 'line',
+        data: { labels: baseA.labels, datasets: baseA.datasets(preA, postA) },
+        options: {
+            ...optsA,
+            scales: {
+                ...optsA.scales,
+                y: { ...optsA.scales.y, min: 0, max: 1 },
+            },
+        },
+    });
+
+    return { chartV, chartA };
+}
+
+function mostraRisultati(pre, post, analisi, seriePre, seriePost) {
+    if (_chartV) { _chartV.destroy(); _chartV = null; }
+    if (_chartA) { _chartA.destroy(); _chartA = null; }
+
+    const charts = _creaGraficiSuCanvas(
+        document.getElementById('grafico-valence'),
+        document.getElementById('grafico-arousal'),
+        seriePre, seriePost,
+    );
+    _chartV = charts.chartV;
+    _chartA = charts.chartA;
+
+    const testi = _testiRisultati(pre, post, seriePre, seriePost);
+    document.getElementById('spiega-valence').textContent = testi.spiegaUmore;
+    document.getElementById('spiega-arousal').textContent = testi.spiegaEnergia;
+
+    if (analisi?.interpretazione) {
+        document.getElementById('risultati-testo').textContent = analisi.interpretazione;
+        document.getElementById('risultati-analisi').style.display = 'block';
+    } else {
+        document.getElementById('risultati-analisi').style.display = 'none';
+    }
+}
+
+function _distruggiGraficiCalendario() {
+    for (const c of _calCharts) {
+        try { c.destroy(); } catch (_) {}
+    }
+    _calCharts = [];
+}
+
+function _htmlRisultatoSessione(s, sid) {
+    const testi = (s.spiegazione_umore && s.spiegazione_energia)
+        ? { spiegaUmore: s.spiegazione_umore, spiegaEnergia: s.spiegazione_energia }
+        : _testiRisultati(
+            s.emozioni_pre, s.emozioni_post,
+            s.serie_pre || { valenza: [], arousal: [] },
+            s.serie_post || { valenza: [], arousal: [] },
+        );
+    const haSerie = (s.serie_pre?.valenza?.length || 0) + (s.serie_post?.valenza?.length || 0) >= 3;
+    const dur = s.durata_minuti || '—';
+
+    return `<div class="cal-sessione-item" data-sid="${sid}">
+      <strong>${dur} minuti</strong>
+      ${s.racconto ? `<div class="cal-racconto">"${s.racconto.slice(0, 100)}${s.racconto.length > 100 ? '…' : ''}"</div>` : ''}
+      ${s.riflessione_post ? `<div class="cal-racconto" style="font-style:normal;opacity:0.85">Dopo: "${s.riflessione_post.slice(0, 100)}${s.riflessione_post.length > 100 ? '…' : ''}"</div>` : ''}
+      ${haSerie ? `
+        <div class="grafico-wrap">
+          <h4>Come ti sei sentito/a</h4>
+          <canvas id="cal-v-${sid}" height="90"></canvas>
+          <p class="grafico-spiegazione">${testi.spiegaUmore}</p>
+        </div>
+        <div class="grafico-wrap">
+          <h4>Quanto eri attivo/a o in tensione</h4>
+          <canvas id="cal-a-${sid}" height="90"></canvas>
+          <p class="grafico-spiegazione">${testi.spiegaEnergia}</p>
+        </div>` : `
+        <p class="grafico-spiegazione">${testi.spiegaUmore}</p>
+        <p class="grafico-spiegazione">${testi.spiegaEnergia}</p>`}
+      ${s.analisi_claude?.interpretazione ? `
+        <div class="cal-sintesi">
+          <strong>In sintesi</strong>
+          ${s.analisi_claude.interpretazione}
+        </div>` : ''}
+    </div>`;
+}
+
+function _renderGraficiCalendario(sessioni) {
+    for (const s of sessioni) {
+        const sid = s.id || 'x';
+        const n = (s.serie_pre?.valenza?.length || 0) + (s.serie_post?.valenza?.length || 0);
+        if (n < 3) continue;
+        const cv = document.getElementById(`cal-v-${sid}`);
+        const ca = document.getElementById(`cal-a-${sid}`);
+        if (!cv || !ca) continue;
+        const { chartV, chartA } = _creaGraficiSuCanvas(
+            cv, ca, s.serie_pre || { valenza: [], arousal: [] }, s.serie_post || { valenza: [], arousal: [] },
+        );
+        _calCharts.push(chartV, chartA);
+    }
+}
+
+document.getElementById('btn-chiudi-risultati').addEventListener('click', () => {
+    document.getElementById('panel-risultati').classList.remove('visibile');
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ tipo: 'risultati_visti' }));
+    }
+});
+document.getElementById('btn-calendario-apri').addEventListener('click', () => {
+    document.getElementById('panel-risultati').classList.remove('visibile');
+    apriCalendario();
+});
+
+// ------------------------------------------------------------------ Calendario
+async function apriCalendario() {
+    if (_utenteCorrente) {
+        try { _calSessioni = await caricaSessioniCalendario(_utenteCorrente.uid); }
+        catch (_) { _calSessioni = {}; }
+    }
+    renderCalendario();
+    document.getElementById('modal-calendario').classList.add('visibile');
+}
+
+function renderCalendario() {
+    const anno = _calMese.getFullYear();
+    const mese = _calMese.getMonth();
+    document.getElementById('cal-titolo-mese').textContent =
+        new Date(anno, mese, 1).toLocaleDateString('it-IT', { month: 'long', year: 'numeric' });
+
+    const grid  = document.getElementById('cal-grid');
+    grid.innerHTML = '';
+
+    const primoGiorno  = (new Date(anno, mese, 1).getDay() + 6) % 7; // lun=0
+    const ultimoGiorno = new Date(anno, mese + 1, 0).getDate();
+    const oggiStr      = new Date().toISOString().split('T')[0];
+
+    for (let i = 0; i < primoGiorno; i++) {
+        grid.appendChild(document.createElement('div')).className = 'cal-cell';
+    }
+    for (let g = 1; g <= ultimoGiorno; g++) {
+        const data = `${anno}-${String(mese + 1).padStart(2,'0')}-${String(g).padStart(2,'0')}`;
+        const cell = document.createElement('div');
+        cell.className = 'cal-cell';
+        cell.textContent = g;
+        if (data === oggiStr) cell.classList.add('oggi');
+        if (_calSessioni[data]) {
+            cell.classList.add('ha-sessione');
+            cell.title = `${_calSessioni[data].length} sessione/i`;
+            cell.addEventListener('click', () => mostraDettaglioGiorno(data, cell));
+        }
+        grid.appendChild(cell);
+    }
+    document.getElementById('cal-dettaglio').innerHTML = '';
+    _distruggiGraficiCalendario();
+}
+
+function mostraDettaglioGiorno(data, cell) {
+    document.querySelectorAll('.cal-cell.selezionato').forEach(c => c.classList.remove('selezionato'));
+    cell.classList.add('selezionato');
+
+    _distruggiGraficiCalendario();
+
+    const sessioni = _calSessioni[data] || [];
+    const div = document.getElementById('cal-dettaglio');
+    const fmt = new Date(data + 'T12:00:00').toLocaleDateString('it-IT',
+        { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+    if (!sessioni.length) {
+        div.innerHTML = `<div style="color:rgba(255,255,255,0.55); font-size:0.75rem; margin-bottom:0.75rem; letter-spacing:0.06em; text-transform:uppercase">${fmt}</div>
+            <p>Nessuna sessione registrata per questo giorno.</p>`;
+        return;
+    }
+
+    div.innerHTML = `<div style="color:rgba(255,255,255,0.55); font-size:0.75rem; margin-bottom:0.75rem; letter-spacing:0.06em; text-transform:uppercase">${fmt}</div>` +
+        sessioni.map(s => _htmlRisultatoSessione(s, s.id || `s${Math.random().toString(36).slice(2, 8)}`)).join('');
+
+    _renderGraficiCalendario(sessioni);
+}
+
+document.getElementById('cal-prec').addEventListener('click', () => {
+    _calMese = new Date(_calMese.getFullYear(), _calMese.getMonth() - 1, 1);
+    renderCalendario();
+});
+document.getElementById('cal-succ').addEventListener('click', () => {
+    _calMese = new Date(_calMese.getFullYear(), _calMese.getMonth() + 1, 1);
+    renderCalendario();
+});
+document.getElementById('btn-chiudi-calendario').addEventListener('click', () => {
+    _distruggiGraficiCalendario();
+    document.getElementById('modal-calendario').classList.remove('visibile');
+});
+
+// ------------------------------------------------------------------ Helper: Web Speech API
+function _initVoice(btnMic, textarea, statoEl, onFine) {
+    if (!btnMic || !textarea) return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { btnMic.style.display = 'none'; return; }
+
+    const rec = new SR();
+    rec.lang = 'it-IT';
+    rec.continuous = true;
+    rec.interimResults = true;
+    let base = '';
+
+    rec.onresult = ev => {
+        let interim = '';
+        for (let i = ev.resultIndex; i < ev.results.length; i++) {
+            if (ev.results[i].isFinal) base += ev.results[i][0].transcript;
+            else interim = ev.results[i][0].transcript;
+        }
+        textarea.value = base + interim;
+    };
+    rec.onend = () => {
+        btnMic.classList.remove('rec');
+        if (statoEl) statoEl.textContent = 'pronto';
+        onFine?.();
+    };
+    rec.onerror = () => {
+        btnMic.classList.remove('rec');
+        if (statoEl) statoEl.textContent = 'errore microfono';
+    };
+
+    btnMic.addEventListener('click', () => {
+        if (btnMic.classList.contains('rec')) {
+            rec.stop();
+        } else {
+            base = textarea.value;
+            try {
+                rec.start();
+                btnMic.classList.add('rec');
+                if (statoEl) statoEl.textContent = 'ascolto…';
+            } catch (_) {}
+        }
+    });
+}

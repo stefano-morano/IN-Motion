@@ -1,0 +1,8 @@
+mediapipe
+opencv-python
+python-osc
+anthropic
+faster-whisper
+sounddevice
+numpy
+pillow

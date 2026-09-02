@@ -8,7 +8,7 @@
 
 import {
     SCALA, CAM_TX, CAM_TY,
-    aspettoSchermo, raggioVisibile,
+    aspettoSchermo, aspettoWebcam, raggioVisibile,
 } from './scena.js';
 
 // ------------------------------------------------------------------ costanti
@@ -48,6 +48,22 @@ const FLUTTUAZIONE_NEBBIA = 3.0;
 const CORRENTE_AMPIEZZA = 0.035;
 const CORRENTE_SCALA = 1.4;
 const CORRENTE_VELOCITA = 0.25;
+// RITMO DI RIFERIMENTO. In TouchDesigner il nodo delle particelle ricalcola
+// solo quando arrivano punti NUOVI dalla webcam, cioe' ~30 volte al secondo:
+// l'inerzia era quindi un passo applicato 30 volte al secondo. Nel browser il
+// ciclo gira a 60 fps, quindi applicando lo stesso passo le particelle
+// arrivavano a destinazione nella meta' del tempo — le transizioni sembravano
+// frettolose e non si vedeva piu' la singola particella spostarsi.
+//
+// La correzione non e' dimezzare la costante (sarebbe giusta solo a 60 fps
+// esatti): si converte il passo per fotogramma in un avvicinamento esponenziale
+// dipendente dal tempo. Cosi' il movimento e' identico a qualunque frame rate.
+const RITMO_RIFERIMENTO = 30.0;
+
+function passoInerzia(inerzia, dt) {
+    return 1 - Math.pow(1 - inerzia, dt * RITMO_RIFERIMENTO);
+}
+
 const INERZIA_MIN = 0.04;
 const INERZIA_MAX = 0.28;
 
@@ -220,10 +236,23 @@ export class LogicaParticelle {
     aggiorna(P, ora) {
         const n = this._c.n || TOTALE_PARTICELLE;
 
+        // Quanto tempo e' passato dall'ultimo fotogramma. Serve all'inerzia,
+        // che dev'essere indipendente dal frame rate: vedi passoInerzia().
+        // Il valore si limita fra 1/240 e 0.1 perche' una pausa del browser
+        // (una scheda in secondo piano, un blocco) non faccia teletrasportare
+        // le particelle al bersaglio in un solo salto.
+        const _prec = this._c.t_prec;
+        const dt = (_prec === undefined || _prec === null)
+                 ? 1 / 60
+                 : Math.min(Math.max(ora - _prec, 1 / 240), 0.1);
+        this._c.t_prec = ora;
+
         // Converti landmark MediaPipe → coordinate scena 3D
         let pts = null;
         if (P && P.length >= 478) {
-            const aspetto = aspettoSchermo();
+            // il VOLTO si corregge con l'aspetto della telecamera, non con
+            // quello della finestra: vedi aspettoWebcam() in scena.js
+            const aspetto = aspettoWebcam();
             pts = new Float32Array(P.length * 3);
             for (let i = 0; i < P.length; i++) {
                 pts[i * 3]     = (0.5 - P[i].x) * aspetto * SCALA;
@@ -317,9 +346,10 @@ export class LogicaParticelle {
         } else {
             const inerzia = this._c.inerzia;
             for (let i = 0; i < n; i++) {
-                pos[i*3]   += (bersaglio[i*3]   - pos[i*3])   * inerzia[i];
-                pos[i*3+1] += (bersaglio[i*3+1] - pos[i*3+1]) * inerzia[i];
-                pos[i*3+2] += (bersaglio[i*3+2] - pos[i*3+2]) * inerzia[i];
+                const k = passoInerzia(inerzia[i], dt);
+                pos[i*3]   += (bersaglio[i*3]   - pos[i*3])   * k;
+                pos[i*3+1] += (bersaglio[i*3+1] - pos[i*3+1]) * k;
+                pos[i*3+2] += (bersaglio[i*3+2] - pos[i*3+2]) * k;
             }
         }
         this._c.posizioni = pos;
@@ -625,7 +655,9 @@ export class LogicaParticelle {
         }
 
         // Attrito
-        for (let i = 0; i < fuga.length; i++) fuga[i] *= ATTRITO_FUGA;
+        // anche l'attrito era per fotogramma: a 60 fps frenava il doppio
+        const attrito = Math.pow(ATTRITO_FUGA, dt * RITMO_RIFERIMENTO);
+        for (let i = 0; i < fuga.length; i++) fuga[i] *= attrito;
         this._c.fuga = fuga;
 
         // Calcola grado di libertà (cricchetto: può solo crescere)
@@ -643,9 +675,10 @@ export class LogicaParticelle {
         const out = new Float32Array(pos.length);
         for (let i = 0; i < n; i++) {
             const lib = libera[i];
-            out[i*3]   = pos[i*3]   + (bersaglio[i*3]   - pos[i*3])   * inerzia[i] * (1-lib) + fuga[i*3]   * dt;
-            out[i*3+1] = pos[i*3+1] + (bersaglio[i*3+1] - pos[i*3+1]) * inerzia[i] * (1-lib) + fuga[i*3+1] * dt;
-            out[i*3+2] = pos[i*3+2] + (bersaglio[i*3+2] - pos[i*3+2]) * inerzia[i] * (1-lib) + fuga[i*3+2] * dt;
+            const k = passoInerzia(inerzia[i], dt);
+            out[i*3]   = pos[i*3]   + (bersaglio[i*3]   - pos[i*3])   * k * (1-lib) + fuga[i*3]   * dt;
+            out[i*3+1] = pos[i*3+1] + (bersaglio[i*3+1] - pos[i*3+1]) * k * (1-lib) + fuga[i*3+1] * dt;
+            out[i*3+2] = pos[i*3+2] + (bersaglio[i*3+2] - pos[i*3+2]) * k * (1-lib) + fuga[i*3+2] * dt;
         }
         return out;
     }

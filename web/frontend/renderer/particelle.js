@@ -7,7 +7,7 @@
 
 import * as THREE from 'three';
 import { PostProcessing } from './post.js';
-import { larghezzaMondo, altezzaMondo } from './scena.js';
+import { altezzaMondo, aspettoSchermo, CAM_TZ } from './scena.js';
 
 export class RendererParticelle {
     constructor(canvas) {
@@ -24,10 +24,21 @@ export class RendererParticelle {
         // Scena
         this._scene = new THREE.Scene();
 
-        // Camera ortografica: frustum adattato al rapporto d'aspetto della finestra
-        const hw = larghezzaMondo() / 2;
-        const hh = altezzaMondo() / 2;
-        this._camera = new THREE.OrthographicCamera(-hw, hw, hh, -hh, -10, 10);
+        // Camera PROSPETTICA, come quella di TouchDesigner.
+        //
+        // Con una ortografica tutte le particelle hanno la stessa dimensione a
+        // qualunque profondita': 'sizeAttenuation' non ha alcun effetto e la
+        // nuvola si appiattisce in un adesivo. Con la prospettiva, quelle piu'
+        // vicine sono davvero piu' grandi — ed e' cio' che si leggeva come
+        // volume nella versione TD.
+        //
+        // Il fov verticale e' scelto perche' a z=0 l'inquadratura resti
+        // IDENTICA a quella ortografica di prima (altezza visibile = SCALA):
+        // volto, scritte e mandala restano dove sono, cambia solo cio' che sta
+        // davanti o dietro quel piano.
+        const fov = 2 * Math.atan(altezzaMondo() / (2 * CAM_TZ)) * 180 / Math.PI;
+        this._camera = new THREE.PerspectiveCamera(fov, aspettoSchermo(), 0.1, 100);
+        this._camera.position.set(0, 0, CAM_TZ);
 
         // Geometria particelle
         const n = 13664;
@@ -40,7 +51,9 @@ export class RendererParticelle {
 
         // Materiale: fusione additiva senza depth test
         const mat = new THREE.PointsMaterial({
-            size: 0.021,
+            // un pelo piu' grandi che nel primo porting: con la prospettiva
+            // quelle lontane rimpiccioliscono, e a 0.021 sparivano
+            size: 0.026,
             vertexColors: true,
             blending: THREE.AdditiveBlending,
             depthTest: false,
@@ -107,12 +120,8 @@ export class RendererParticelle {
         const h = window.innerHeight;
         this._renderer.setSize(w, h);
         this._post.setSize(w, h);
-        const hw = larghezzaMondo() / 2;
-        const hh = altezzaMondo() / 2;
-        this._camera.left   = -hw;
-        this._camera.right  =  hw;
-        this._camera.top    =  hh;
-        this._camera.bottom = -hh;
+        this._camera.aspect = aspettoSchermo();
+        this._camera.fov = 2 * Math.atan(altezzaMondo() / (2 * CAM_TZ)) * 180 / Math.PI;
         this._camera.updateProjectionMatrix();
     }
 }

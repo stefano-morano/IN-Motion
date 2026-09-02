@@ -10,6 +10,7 @@ import { FaceLandmarker, FilesetResolver }
 import { RendererParticelle } from './renderer/particelle.js';
 import { LogicaParticelle }   from './renderer/logica.js';
 import { campionaTesto }      from './renderer/testo_canvas.js';
+import { impostaAspettoWebcam } from './renderer/scena.js';
 import { AnalizzatoreEmozioni } from './renderer/emozioni.js';
 import { loginGoogle, logout, onAuth, salvaSessione, inizializza,
          loginEmail, registraEmail, resetPassword,
@@ -564,6 +565,14 @@ async function initFaceTracking() {
         video.srcObject = stream;
         await new Promise(res => { video.onloadedmetadata = res; });
         await video.play();
+
+        // Il volto va corretto con il rapporto d'aspetto della TELECAMERA:
+        // MediaPipe normalizza x sulla larghezza e y sull'altezza in modo
+        // indipendente, quindi senza questa correzione il viso risulta
+        // schiacciato. Non e' l'aspetto della finestra, che non c'entra.
+        if (video.videoWidth && video.videoHeight) {
+            impostaAspettoWebcam(video.videoWidth / video.videoHeight);
+        }
     } catch (e) {
         console.warn('webcam non disponibile:', e);
     }

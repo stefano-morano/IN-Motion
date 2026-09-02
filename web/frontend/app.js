@@ -59,8 +59,8 @@ class AudioManager {
         this._masterVolume = 1;
         this._muted = false;
         this._sorgenti = {
-            principale: { node: null, gainVol: null, gainAtt: null, volume: 0 },
-            tappeto:    { node: null, gainVol: null, gainAtt: null, volume: 0 },
+            principale: { node: null, gainVol: null, gainAtt: null, volume: 0, caricamento: null },
+            tappeto:    { node: null, gainVol: null, gainAtt: null, volume: 0, caricamento: null },
         };
         this._cache = new Map();
         this._recorder = null;
@@ -151,6 +151,12 @@ class AudioManager {
         if (!s) return;
 
         if (azione === 'play' || azione === 'carica') {
+            // Il caricamento (fetch + decodifica del wav) puo' prendere
+            // qualche centinaio di millisecondi. 'parti' arriva subito dopo,
+            // quindi va fatto aspettare: senza, trovava gainVol ancora nullo,
+            // usciva senza fare niente e la musica non partiva mai — o partiva
+            // molto dopo, al primo cambio di volume utile.
+            s.caricamento = (async () => {
             await this._ensure();
             this._stop(nome);
             const idx = Math.floor(Math.random() * 4).toString().padStart(2, '0');
@@ -177,7 +183,10 @@ class AudioManager {
             } catch (e) {
                 console.warn('audio ' + azione + ' error:', e);
             }
+            })();
+            await s.caricamento;
         } else if (azione === 'parti') {
+            if (s.caricamento) await s.caricamento;
             if (!s.gainVol) return;
             s.volume = volume ?? 1;
             this._rampa(s.gainVol.gain, 0, s.volume, fade || 0.1, curva || 1);
@@ -229,21 +238,56 @@ class AudioManager {
 
     _campana(chiusura, ritardo = 2.2) {
         if (!this.ctx) return;
-        // Frequenza fondamentale: la grave per chiusura, una quinta sopra per apertura
+
+        // Porto fedele di campanella.py. La versione precedente aveva tre
+        // parziali a un quinto del volume: si perdeva sotto la musica invece
+        // di annunciare il passaggio.
+        //
+        // Tre dettagli fisici, e sono quelli che la fanno sembrare metallo:
+        //  1. parziali NON armoniche (2.71, 5.18, 8.35 e non 2, 3, 4)
+        //  2. le acute si spengono PRIMA delle gravi: il suono comincia
+        //     brillante e si scurisce mentre svanisce
+        //  3. ogni parziale e' sdoppiata di una frazione di hertz, come in una
+        //     ciotola vera che non e' mai perfettamente simmetrica: le due
+        //     onde vanno a tempo e poi in opposizione, e il volume ondeggia
+        const PARZIALI = [   // [rapporto, peso, secondi di decadimento]
+            [1.00, 1.00, 3.20],
+            [2.71, 0.55, 1.80],
+            [5.18, 0.28, 1.00],
+            [8.35, 0.12, 0.55],
+        ];
+        const ATTACCO    = 0.012;   // salita morbida: senza, e' un click
+        const BATTIMENTO = 0.9;     // Hz di scarto fra le due meta'
+        const VOLUME     = 0.22;    // come in campanella.py
+
         const freq = chiusura ? 220 : 330;
-        // Tre parziali non armoniche
-        const parziali = [[1.0, 0.7], [2.71, 0.25], [5.18, 0.08]];
         const t0 = this.ctx.currentTime + ritardo;
-        for (const [mult, amp] of parziali) {
-            const osc = this.ctx.createOscillator();
-            const gain = this.ctx.createGain();
-            osc.frequency.value = freq * mult;
-            osc.type = 'sine';
-            gain.gain.setValueAtTime(amp * 0.06, t0);
-            gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 3.5);
-            osc.connect(gain).connect(this.ctx.destination);
-            osc.start(t0);
-            osc.stop(t0 + 3.6);
+        const uscita = this._masterGain || this.ctx.destination;
+
+        // la somma dei pesi serve a normalizzare: cosi' VOLUME e' davvero il
+        // picco, come nella versione Python dove il buffer viene normalizzato
+        const somma = PARZIALI.reduce((t, p) => t + p[1], 0);
+
+        for (const [rapporto, peso, decadimento] of PARZIALI) {
+            const f = freq * rapporto;
+            const battito = BATTIMENTO * rapporto;   // le acute battono prima
+            const ampiezza = (peso / somma) * VOLUME;
+
+            for (const df of [0, battito]) {
+                const osc  = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.value = f + df;
+
+                const a = ampiezza / 2;              // due oscillatori per parziale
+                gain.gain.setValueAtTime(0.0001, t0);
+                gain.gain.linearRampToValueAtTime(a, t0 + ATTACCO);
+                gain.gain.exponentialRampToValueAtTime(0.0001, t0 + decadimento);
+
+                osc.connect(gain).connect(uscita);
+                osc.start(t0);
+                osc.stop(t0 + decadimento + 0.1);
+            }
         }
     }
 

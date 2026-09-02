@@ -271,10 +271,30 @@ async def ws_handler(ws: WebSocket):
     scena = ScenaWS(coda)
     musica = MusicaWS(coda, "principale")
     tappeto = MusicaWS(coda, "tappeto")
+
+    # Il tappeto si CARICA adesso, non quando deve suonare. Il browser deve
+    # scaricare e decodificare il wav, e sono qualche centinaio di
+    # millisecondi: chiedendoglielo all'ultimo, la musica entrava in ritardo
+    # sull'inizio dell'esperienza. Qui c'e' tutto il tempo dell'attesa del
+    # racconto per farlo con calma.
+    #
+    # esperienza.avvia_tappeto() trovera' tappeto.pronta gia' True e si
+    # limitera' a farlo partire: e' lo stesso meccanismo con cui main.py
+    # carica a sipario chiuso.
+    tappeto.carica(_exp_mod.EMOZIONE_TAPPETO, morbido=True)
     ascolto = AscoltoWS(coda, stato)
 
     # 1. Pronto, poi aspetta "inizia" o "racconto" (timeout 5 min)
     await ws.send_json({"tipo": "pronto"})
+
+    # La coda viene svuotata solo al punto 3, a esperienza gia' avviata: qui la
+    # si svuota a mano perche' il precaricamento del tappeto parta ADESSO e il
+    # browser abbia tutto il tempo dell'attesa del racconto per scaricarlo.
+    while True:
+        try:
+            await ws.send_json(coda.get_nowait())
+        except queue.Empty:
+            break
     racconto = ""
     profilo_utente: dict = {}
     try:
@@ -304,6 +324,15 @@ async def ws_handler(ws: WebSocket):
                 sincronia=stato,
             )
             esp_ref["esp"] = esp
+
+            # Il tappeto entra PRIMA e con la sua curva, non con quella
+            # dell'apertura. Su TouchDesigner la musica sale insieme
+            # all'immagine che emerge dal nero, quindi segue la stessa curva
+            # lenta (4 s, potenza 2.2: dopo un secondo e' al 5%). Sul web
+            # quella dissolvenza visiva non c'e', e la stessa curva fa
+            # semplicemente sembrare che la musica arrivi in ritardo.
+            # Chiamandolo qui, avvia() lo trova gia' avviato e non lo rifa'.
+            esp.avvia_tappeto(fade=2.0, curva=1.0)
             esp.avvia(time.time())
             while not esp.finita and not stop_ev.is_set():
                 punti = _adatta_punti(stato.get_punti())

@@ -102,8 +102,8 @@ SCRITTE_FISSE = (SALUTO + INVITO + ATTESA + ATTESA_MANDALA
 # che si legge di corsa non da' il tempo di sentirla.
 LEGGIBILE = 2.0
 
-TRANSIZIONE = 2.0           # quanto dura il passaggio da una forma all'altra (prova; era 4.0)
-TRANSIZIONE_BREVE = 1.5     # per i cambi rapidi (blocchi d'attesa) (prova; era 2.5)
+TRANSIZIONE = 4.0           # quanto dura il passaggio da una forma all'altra
+TRANSIZIONE_BREVE = 2.5     # per i cambi rapidi (blocchi d'attesa)
 
 # L'apertura ha una transizione tutta sua, molto piu' lenta delle altre: e' la
 # nuvola di polvere che si raccoglie nelle prime parole, e vale la pena

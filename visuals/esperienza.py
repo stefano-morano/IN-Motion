@@ -46,14 +46,46 @@ import stacco as modulo_stacco
 import testi
 
 # ---------- scritte sempre uguali ----------
-SALUTO = ["BENVENUTO E GRAZIE PER ESSERE QUI"]
-INVITO = ["QUANDO TI SENTI PRONTO", "CHIUDI GLI OCCHI E RACCONTAMI CIO CHE VUOI"]
+# Per il saluto, l'invito, la chiusura e il commiato ci sono piu' varianti: se
+# ne sceglie una a caso all'avvio del processo (un'esecuzione = una sessione),
+# cosi' chi rifa' l'esperienza piu' volte — prove, dimostrazioni — non sente
+# sempre le stesse parole. La macchina a stati usa len(...) per sapere quando
+# passare oltre, quindi le varianti non devono avere tutte lo stesso numero di
+# righe; devono pero' restare entro i 42 caratteri per riga (vedi MAX_CARATTERI
+# in testi.py) e coprire lo stesso contenuto funzionale delle altre — INVITO,
+# in particolare, deve sempre dire di chiudere gli occhi E raccontare.
+SALUTO_VARIANTI = [
+    ["BENVENUTO E GRAZIE PER ESSERE QUI"],
+    ["SEI ARRIVATO, E QUESTO BASTA"],
+    ["GRAZIE DI ESSERE QUI, ORA"],
+]
+INVITO_VARIANTI = [
+    ["QUANDO TI SENTI PRONTO", "CHIUDI GLI OCCHI E RACCONTAMI CIO CHE VUOI"],
+    ["PRENDITI IL TUO TEMPO", "CHIUDI GLI OCCHI, DIMMI COSA PORTI OGGI"],
+    ["NESSUNA FRETTA", "CHIUDI GLI OCCHI E RACCONTAMI COME STAI"],
+]
+CHIUSURA_VARIANTI = [
+    ["È IL MOMENTO DI MEDITARE", "CHIUDI GLI OCCHI QUANDO TI SENTI PRONTO"],
+    ["ORA TOCCA A TE, IN SILENZIO", "CHIUDI GLI OCCHI QUANDO SEI PRONTO"],
+    ["IL RESPIRO SA GIÀ COSA FARE", "CHIUDI GLI OCCHI E LASCIALO GUIDARE"],
+]
+COMMIATO_VARIANTI = [
+    ["NIENTE DI BELLO VA TRATTENUTO", "GRAZIE, A PRESTO"],
+    ["QUELLO CHE SERVIVA È SUCCESSO", "GRAZIE DI CUORE, A PRESTO"],
+    ["PORTA CON TE SOLO CIO CHE SERVE", "A PRESTO"],
+]
+
+SALUTO = random.choice(SALUTO_VARIANTI)
+INVITO = random.choice(INVITO_VARIANTI)
+CHIUSURA = random.choice(CHIUSURA_VARIANTI)
+COMMIATO = random.choice(COMMIATO_VARIANTI)
+
 ATTESA = ["PREPARO LA TUA MEDITAZIONE", "CONCENTRATI SUL TUO RESPIRO"]
-CHIUSURA = ["È IL MOMENTO DI MEDITARE", "CHIUDI GLI OCCHI QUANDO TI SENTI PRONTO"]
 ATTESA_MANDALA = ["STO DISEGNANDO IL TUO MANDALA"]
 INVITO_DISSOLUZIONE = ["MUOVI IL VOLTO E LIBERATI DEL MANDALA"]
+# Aggiunta del porting web: dopo la meditazione si chiede una seconda volta
+# di raccontare, per confrontare il prima e il dopo.
 INVITO_RIFLESSIONE = "RACCONTAMI COSA PROVI DOPO LA MEDITAZIONE"
-COMMIATO = ["NIENTE DI BELLO VA TRATTENUTO", "GRAZIE, A PRESTO"]
 
 # Tutte quelle che non dipendono dal racconto: TD puo' disegnarle in anticipo,
 # una volta sola, prima che l'esperienza cominci.
@@ -88,6 +120,15 @@ MAX_ATTESA_GESTO = 90.0     # se il gesto non arriva mai, si prosegue lo stesso
 PERMANENZA_VOLTO = 1.5      # il volto non e' da leggere: puo' durare meno
 PERMANENZA_FRASE = LEGGIBILE
 PERMANENZA_CONCETTO = LEGGIBILE + 2.0   # il concetto finale merita piu' respiro
+
+# Il motore musicale (music/reference_select.py) fa scendere l'energia
+# lentamente per Q1/Q2 (si parte da un'arousal alta), mentre per Q3/Q4 e'
+# gia' vicina alla calma quando la danza finisce. Per Q1/Q2 il concetto
+# finale resta a schermo un po' di piu': la musica sotto sta ancora
+# atterrando, e il testo non deve anticipare un arrivo che il suono non ha
+# ancora fatto.
+RESPIRO_EXTRA_DISCESA = 2.0
+QUADRANTI_IN_DISCESA = ("Q1", "Q2")
 PERMANENZA_CHIUSURA = LEGGIBILE
 
 # ---------- il tappeto sonoro ----------
@@ -98,11 +139,32 @@ PERMANENZA_CHIUSURA = LEGGIBILE
 EMOZIONE_TAPPETO = "Q4"
 DISSOLVENZA_TAPPETO = 4.0    # quanto ci mette a cambiare volume
 
-VOLUME_APERTURA = 0.70       # saluto e invito
-VOLUME_ASCOLTO = 0.30        # mentre la persona parla: si fa da parte
-VOLUME_PREPARAZIONE = 0.70   # attesa, frasi personalizzate, danza
-VOLUME_MEDITAZIONE = 0.00    # tace del tutto: parla la traccia generata
-VOLUME_FINALE = 0.70         # mandala, dissoluzione, commiato
+# All'apertura il tappeto sale INSIEME all'immagine, dallo stesso nero: e' la
+# stessa curva della dissolvenza visiva (CURVA_DISSOLVENZA in
+# td_face_points.py). Una rampa lineare sotto un'immagine che sale in modo
+# curvo si sentirebbe arrivare prima di quel che si vede.
+CURVA_APERTURA = 2.2
+
+# Un solo livello per tutta l'opera. Qualunque cosa stia suonando — il tappeto
+# o la traccia della meditazione — suona a questo volume: cambia la musica, non
+# quanto e' forte.
+VOLUME_PIENO = 0.70
+
+VOLUME_APERTURA = VOLUME_PIENO       # saluto e invito
+VOLUME_PREPARAZIONE = VOLUME_PIENO   # attesa, frasi personalizzate, danza
+VOLUME_FINALE = VOLUME_PIENO         # mandala, dissoluzione, commiato
+
+# Le due sole eccezioni, e sono funzionali, non estetiche:
+VOLUME_ASCOLTO = 0.30        # mentre la persona parla il tappeto si fa da
+                             # parte, altrimenti Whisper sente lui e non lei
+VOLUME_MEDITAZIONE = 0.00    # il TAPPETO tace durante la meditazione, per
+                             # lasciare il campo alla traccia generata — che
+                             # suona comunque a VOLUME_PIENO
+
+# Quanto resta della musica sotto la campana dello stacco. Non zero: la
+# campana nel silenzio assoluto suona come un'interruzione, non come un
+# passaggio. Un filo di musica sotto la tiene dentro il pezzo.
+VOLUME_SOTTO_CAMPANA = 0.30
 
 # ---------- fase 2: meditazione ----------
 MIN_MEDITAZIONE = 3.0       # una riapertura fulminea non puo' bastare a finirla
@@ -154,6 +216,7 @@ class Esperienza:
         self._materiale = None
         self._t_pronto = None
         self._scritte_pronte = False
+        self._tappeto_avviato = False
 
         self._indice_blocco = 0
         self._t_blocco = 0.0
@@ -174,8 +237,11 @@ class Esperienza:
         # lo stacco abbassa ENTRAMBE le sorgenti: uscendo dalla meditazione
         # suona la traccia, non il tappeto, e lasciarla su coprirebbe la
         # campana proprio nel passaggio piu' delicato
+        # l'attenuazione e' un MOLTIPLICATORE, quindi il rapporto fra i due
+        # livelli: lo stacco non deve sapere a che volume sta la scena
         self.stacco = modulo_stacco.Stacco(
-            (self.tappeto, self.musica), modulo_musica.SAMPLE_RATE
+            (self.tappeto, self.musica), modulo_musica.SAMPLE_RATE,
+            attenuazione=VOLUME_SOTTO_CAMPANA / VOLUME_PIENO,
         )
 
     def imposta_racconto(self, racconto: str):
@@ -192,6 +258,22 @@ class Esperienza:
         chiedere una scritta non ancora pronta fa ripiegare sul volto."""
         self.scena.prepara(SCRITTE_FISSE)
         self._scritte_pronte = True
+
+    def prepara_tappeto(self):
+        """Carica il tappeto senza farlo partire.
+
+        Il caricamento e' l'operazione piu' lenta di tutto l'avvio (si
+        ricampiona e si filtra la traccia): va fatta a sipario chiuso, non nel
+        momento in cui la musica deve entrare."""
+        self.tappeto.carica(EMOZIONE_TAPPETO, morbido=True)
+
+    def avvia_tappeto(self, fade=DISSOLVENZA_TAPPETO, curva=CURVA_APERTURA):
+        """Fa entrare il tappeto. Se non e' stato caricato prima lo carica
+        adesso — funziona lo stesso, ma il ciclo si ferma per un secondo."""
+        if not self.tappeto.pronta:
+            self.prepara_tappeto()
+        self.tappeto.parti(fade=fade, volume=VOLUME_APERTURA, curva=curva)
+        self._tappeto_avviato = True
 
     def mostra_polvere(self):
         """Sparge le particelle, senza transizione.
@@ -218,8 +300,10 @@ class Esperienza:
         # prime parole. Piu' lento del resto perche' e' l'inizio, e perche'
         # e' il primo movimento che lo spettatore vede.
         self._mostra_blocco(SALUTO, 0, ora, transizione=TRANSIZIONE_APERTURA)
-        self.tappeto.play(EMOZIONE_TAPPETO, fade=DISSOLVENZA_TAPPETO,
-                          volume=VOLUME_APERTURA, morbido=True)
+        # di norma il tappeto e' gia' entrato con la dissolvenza d'apertura;
+        # qui si copre il caso in cui avvia() venga chiamata da sola
+        if not self._tappeto_avviato:
+            self.avvia_tappeto()
         # anche il flusso della traccia si apre ADESSO, muto e senza nulla da
         # suonare: aprirlo piu' tardi, mentre il tappeto suona, farebbe
         # riconfigurare la scheda audio e si sentirebbe un click
@@ -336,7 +420,7 @@ class Esperienza:
                 self._vai("meditazione", ora)
                 self.scena.mostra("volto", transizione=TRANSIZIONE)
                 self.tappeto.volume(VOLUME_MEDITAZIONE, fade=6.0)
-                self.musica.play(self.emozione, fade=6.0)
+                self.musica.play(self.emozione, fade=6.0, volume=VOLUME_PIENO)
 
         elif self.stato == "meditazione":
             pronto_a_finire = trascorso >= MIN_MEDITAZIONE
@@ -484,12 +568,15 @@ class Esperienza:
 
     def _costruisci_copione(self):
         m = self._materiale
+        permanenza_concetto = PERMANENZA_CONCETTO
+        if self.emozione in QUADRANTI_IN_DISCESA:
+            permanenza_concetto += RESPIRO_EXTRA_DISCESA
         self.copione = [
             ("volto", "", TRANSIZIONE, PERMANENZA_VOLTO),
             ("testo", m["frase_1"], TRANSIZIONE, PERMANENZA_FRASE),
             ("volto", "", TRANSIZIONE, PERMANENZA_VOLTO),
             ("testo", m["frase_2"], TRANSIZIONE, PERMANENZA_FRASE),
-            ("testo", m["concetto"], TRANSIZIONE, PERMANENZA_CONCETTO),
+            ("testo", m["concetto"], TRANSIZIONE, permanenza_concetto),
         ]
         for scritta in CHIUSURA:
             self.copione.append(("testo", scritta, TRANSIZIONE, PERMANENZA_CHIUSURA))
@@ -517,16 +604,21 @@ class Esperienza:
             f"  meditazione: {self._durata_meditazione:.0f}s -> "
             f"+{bonus} di dettaglio ({petali} petali, {anelli} anelli)"
         )
-        self.scena.prepara_mandala(petali, anelli, m["mandala_tonalita"], seed)
+        # l'emozione viaggia con gli altri parametri: e' lei a decidere quanto
+        # il colore si apre in gradiente, di qua e nell'immagine salvata
+        self.scena.prepara_mandala(petali, anelli, m["mandala_tonalita"], seed,
+                                   self.emozione)
 
         # Lo stesso mandala, ad alta risoluzione, come file da portare via.
         # Gira in un thread: disegnare 260.000 particelle richiede un paio di
         # secondi e il ciclo principale non deve fermarsi per questo.
-        self._salva_immagine(petali, anelli, m["mandala_tonalita"], seed)
+        self._salva_immagine(petali, anelli, m["mandala_tonalita"], seed,
+                             self.emozione)
 
-    def _salva_immagine(self, petali, anelli, tonalita, seed):
+    def _salva_immagine(self, petali, anelli, tonalita, seed, emozione):
         def lavoro():
-            percorso = modulo_mandala.salva(petali, anelli, tonalita, seed)
+            percorso = modulo_mandala.salva(petali, anelli, tonalita, seed,
+                                            emozione=emozione)
             if percorso:
                 print(f"  il tuo mandala e' salvato in: {percorso}")
 

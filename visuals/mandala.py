@@ -10,6 +10,7 @@ Non serve TouchDesigner: la geometria e' la stessa manciata di formule, e
 disegnarla qui vuol dire che l'immagine si genera anche se TD non e' aperto.
 
     python3 mandala.py 7 3 186 42      # petali anelli tonalita seme
+    python3 mandala.py 7 3 186 42 Q1   # ...e l'emozione, che apre il gradiente
 """
 
 import colorsys
@@ -47,9 +48,41 @@ NEBBIA_RAGGIO = 0.035
 # una nuvola di particelle.
 ALONI = ((0.7, 1.00), (2.6, 0.26), (9.0, 0.13), (30.0, 0.08))
 ESPOSIZIONE = 3.4          # quanto e' luminoso il risultato
+
 SFONDO_CENTRO = (0.045, 0.060, 0.115)
 SFONDO_BORDO = (0.004, 0.006, 0.016)
 VIGNETTA = 0.35            # quanto scuriscono i bordi
+
+# ---------- il gradiente, per emozione ----------
+# La tonalita' scelta da Claude resta l'ANCORA: e' il colore personale, ricavato
+# da cio' che la persona ha raccontato, e non va sostituito. L'emozione decide
+# invece come quel colore si APRE in un gradiente — di quanti gradi la tinta
+# luminosa si stacca da quella profonda, e quanto restano sature entrambe.
+#
+# Il criterio e' l'arousal, lo stesso che guida la musica: piu' l'emozione e'
+# attiva piu' il salto e' ampio e il colore acceso (il mandala attraversa piu'
+# tinte e sembra muoversi), piu' e' quieta piu' il gradiente si stringe attorno
+# a una tinta sola (il disegno diventa quasi monocromo, e sta fermo).
+#
+# 'apertura' e' l'ampiezza TOTALE del gradiente in gradi, e si apre a CAVALLO
+# dell'ancora: la tinta profonda sta mezza apertura da una parte, quella
+# luminosa mezza dall'altra. E' la differenza fra modulare il colore personale
+# e sostituirlo — spostando entrambe le tinte dalla stessa parte, la tinta
+# luminosa (che l'occhio legge per prima) diventava lei il colore del mandala e
+# la tonalita' scelta da Claude spariva: con la stessa ancora, Q1 usciva blu e
+# Q2 verde. Aperto cosi', l'ancora resta il centro e cambia solo quanta strada
+# il colore percorre.
+# 'verso' dice da che parte va la tinta luminosa: non cambia il centro, ma
+# evita che due emozioni di pari apertura si somiglino.
+GRADIENTE = {
+    "Q1": {"apertura": 46.0, "verso": 1, "sat_fondo": 0.86, "sat_luce": 0.60},   # felice-attivo
+    "Q2": {"apertura": 42.0, "verso": -1, "sat_fondo": 0.92, "sat_luce": 0.68},  # teso-agitato
+    "Q3": {"apertura": 24.0, "verso": -1, "sat_fondo": 0.88, "sat_luce": 0.55},  # triste-spento
+    "Q4": {"apertura": 14.0, "verso": 1, "sat_fondo": 0.80, "sat_luce": 0.45},   # calmo
+}
+# Lo stesso ripiego di testi.py: se l'emozione manca o non si riconosce, Q2 e'
+# il viaggio che funziona per piu' gente.
+EMOZIONE_PREDEFINITA = "Q2"
 
 
 def _riparti(n, gruppi):
@@ -172,13 +205,28 @@ def _bagliore(mappa):
     return fuori
 
 
-def _colora(luce, tonalita, lato):
+def _colora(luce, tonalita, lato, emozione=EMOZIONE_PREDEFINITA):
     """Dalla quantita' di luce al colore: le zone deboli prendono la tinta
-    profonda, quelle intense la tinta chiara. Due toni della stessa tonalita'
-    invece di uno solo schiarito — altrimenti il risultato sembra finto."""
+    profonda, quelle intense la tinta chiara. Due toni invece di uno solo
+    schiarito — altrimenti il risultato sembra finto.
+
+    Quanto le due tinte distano fra loro, e quanto sono sature, lo decide
+    l'emozione (vedi GRADIENTE): e' li' che il colore smette di essere una
+    tinta sola e diventa un gradiente che racconta come sta la persona."""
+    g = GRADIENTE.get(emozione, GRADIENTE[EMOZIONE_PREDEFINITA])
     h = (float(tonalita) % 360.0) / 360.0
-    fondo = np.array(colorsys.hsv_to_rgb(h, 0.80, 0.32), dtype=np.float32)
-    chiaro = np.array(colorsys.hsv_to_rgb((h - 0.045) % 1.0, 0.34, 1.0), dtype=np.float32)
+    # le due tinte si aprono a cavallo dell'ancora, mezza apertura per parte:
+    # due toni identici cambiati solo di luminosita' darebbero un risultato
+    # piatto, ma spostarli entrambi dalla stessa parte perderebbe l'ancora
+    mezza = (g["apertura"] / 2.0) / 360.0 * g["verso"]
+    h_fondo = (h - mezza) % 1.0
+    h_chiaro = (h + mezza) % 1.0
+    fondo = np.array(colorsys.hsv_to_rgb(h_fondo, g["sat_fondo"], 0.34), dtype=np.float32)
+    # la saturazione della tinta chiara conta piu' di quanto sembri: e' quella
+    # delle zone piu' luminose, cioe' quelle che si vedono per prime. Troppo
+    # bassa e il mandala sbiadisce verso il bianco proprio dove dovrebbe essere
+    # piu' vivo.
+    chiaro = np.array(colorsys.hsv_to_rgb(h_chiaro, g["sat_luce"], 1.0), dtype=np.float32)
 
     # la luce cresce senza limite dove le particelle si ammassano: la curva la
     # comprime, cosi' i grumi restano leggibili invece di diventare macchie
@@ -201,16 +249,18 @@ def _colora(luce, tonalita, lato):
     return np.clip(immagine, 0.0, 1.0)
 
 
-def genera(petali, anelli, tonalita, seed, lato=DIMENSIONE):
+def genera(petali, anelli, tonalita, seed, lato=DIMENSIONE,
+           emozione=EMOZIONE_PREDEFINITA):
     """L'immagine del mandala, pronta da salvare."""
     angoli, raggi = posizioni(petali, anelli, seed)
     mappa = _densita(angoli, raggi, lato)
     luce = _bagliore(mappa)
-    finale = _colora(luce, tonalita, lato)
+    finale = _colora(luce, tonalita, lato, emozione)
     return Image.fromarray((finale * 255).astype(np.uint8), mode='RGB')
 
 
-def salva(petali, anelli, tonalita, seed, cartella=None):
+def salva(petali, anelli, tonalita, seed, cartella=None,
+          emozione=EMOZIONE_PREDEFINITA):
     """Salva il mandala e restituisce il percorso. Non solleva mai eccezioni:
     se il salvataggio fallisce l'esperienza non deve fermarsi per questo."""
     try:
@@ -221,7 +271,7 @@ def salva(petali, anelli, tonalita, seed, cartella=None):
         # sovrascriversi a vicenda, e dal nome si risale ai parametri esatti
         nome = datetime.now().strftime('mandala_%Y-%m-%d_%H-%M-%S') + f'_{int(seed)}.png'
         percorso = os.path.join(cartella, nome)
-        genera(petali, anelli, tonalita, seed).save(percorso)
+        genera(petali, anelli, tonalita, seed, emozione=emozione).save(percorso)
         return percorso
     except Exception as errore:
         print(f"[mandala] non sono riuscito a salvare l'immagine ({errore})")
@@ -236,7 +286,9 @@ if __name__ == '__main__':
     anelli = int(argomenti[1]) if len(argomenti) > 1 else 3
     tonalita = float(argomenti[2]) if len(argomenti) > 2 else 186.0
     seed = int(argomenti[3]) if len(argomenti) > 3 else 42
+    emozione = argomenti[4].upper() if len(argomenti) > 4 else EMOZIONE_PREDEFINITA
 
-    print(f"disegno: {petali} petali, {anelli} anelli, tonalita' {tonalita:.0f}°, seme {seed}")
-    percorso = salva(petali, anelli, tonalita, seed)
+    print(f"disegno: {petali} petali, {anelli} anelli, tonalita' {tonalita:.0f}°, "
+          f"seme {seed}, emozione {emozione}")
+    percorso = salva(petali, anelli, tonalita, seed, emozione=emozione)
     print(f"salvato in: {percorso}")

@@ -20,8 +20,13 @@ if ! command -v python3 &>/dev/null; then
 fi
 echo -e "${VERDE}✓ $(python3 --version)${NC}"
 
-# Installa dipendenze se mancanti
-if ! python3 -c "import uvicorn" &>/dev/null; then
+# Installa dipendenze se mancanti.
+# Si controlla anche 'websockets', non solo uvicorn: chi ha gia' uvicorn
+# installato per un altro progetto lo ha quasi sempre SENZA gli extra
+# [standard], e senza quelli il canale WebSocket non si apre. Il sintomo e'
+# ingannevole — il server parte, il browser mostra il volto, ma l'esperienza
+# non comincia mai e il terminale ripete "Unsupported upgrade request".
+if ! python3 -c "import uvicorn, websockets" &>/dev/null; then
     echo -e "${GIALLO}⚠ Installo dipendenze...${NC}"
     python3 -m pip install -r "$BACKEND/requirements.txt"
     [ $? -ne 0 ] && { echo -e "${ROSSO}✗ Installazione fallita${NC}"; read -p "Invio per chiudere..."; exit 1; }

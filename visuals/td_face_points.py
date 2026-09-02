@@ -532,13 +532,30 @@ def prepara_testi(frasi):
     return sorted(testi.keys())
 
 
-def prepara_mandala(petali, anelli, tonalita, seed):
+# ---------- il gradiente, per emozione ----------
+# Copia dei valori di visuals/mandala.py: la tonalita' scelta da Claude e'
+# l'ANCORA (il colore personale), l'emozione decide quanto il gradiente si apre
+# a cavallo di quell'ancora — mezza apertura per la tinta profonda, mezza per
+# la luminosa. Aprendolo cosi' invece di spostare entrambe le tinte dalla
+# stessa parte, il colore personale resta il centro invece di essere
+# sostituito. Se cambi i numeri qui, cambiali anche li'.
+GRADIENTE = {
+    "Q1": {"apertura": 46.0, "verso": 1, "sat_fondo": 0.86, "sat_luce": 0.60},
+    "Q2": {"apertura": 42.0, "verso": -1, "sat_fondo": 0.92, "sat_luce": 0.68},
+    "Q3": {"apertura": 24.0, "verso": -1, "sat_fondo": 0.88, "sat_luce": 0.55},
+    "Q4": {"apertura": 14.0, "verso": 1, "sat_fondo": 0.80, "sat_luce": 0.45},
+}
+EMOZIONE_PREDEFINITA = "Q2"
+
+
+def prepara_mandala(petali, anelli, tonalita, seed, emozione=EMOZIONE_PREDEFINITA):
     """Genera e ricorda la forma del mandala. E' puro calcolo, ma resta
     comandata da fuori come prepara_testi() per lasciare a TD un fotogramma."""
     if 'pesi' not in _c:
         _prepara(478)
     n = _c['pesi'].shape[0]
     _c['mandala_tonalita'] = float(tonalita)
+    _c['mandala_emozione'] = str(emozione)
     return _genera_mandala(n, petali, anelli, seed)
 
 
@@ -553,8 +570,9 @@ def prepara_mandala_in_coda():
     args = _c.pop('da_preparare_mandala', None)
     if not args or len(args) < 4:
         return None
-    petali, anelli, tonalita, seed = args
-    return prepara_mandala(petali, anelli, tonalita, seed)
+    petali, anelli, tonalita, seed = args[:4]
+    emozione = args[4] if len(args) > 4 else EMOZIONE_PREDEFINITA
+    return prepara_mandala(petali, anelli, tonalita, seed, emozione)
 
 
 def vai_a(tipo, testo='', durata=None):
@@ -659,11 +677,14 @@ def _palette(tipo):
     # particella, e in fusione additiva dove si sovrappongono si somma. Una
     # tinta luminosa vicina al bianco pieno satura e il colore scelto da
     # Claude sparisce — che e' esattamente il contrario di quello che serve.
+    g = GRADIENTE.get(_c.get('mandala_emozione'), GRADIENTE[EMOZIONE_PREDEFINITA])
     h = (_c['mandala_tonalita'] % 360.0) / 360.0
-    fondo = colorsys.hsv_to_rgb(h, 0.80, 0.090)
-    # la tinta chiara si sposta un po' di tonalita' e si smorza di saturazione:
-    # due toni identici cambiati solo di luminosita' danno un risultato piatto
-    luce = colorsys.hsv_to_rgb((h - 0.045) % 1.0, 0.42, 0.620)
+    # le due tinte si aprono a cavallo dell'ancora, mezza apertura per parte:
+    # due toni identici cambiati solo di luminosita' darebbero un risultato
+    # piatto, ma spostarli entrambi dalla stessa parte perderebbe l'ancora
+    mezza = (g["apertura"] / 2.0) / 360.0 * g["verso"]
+    fondo = colorsys.hsv_to_rgb((h - mezza) % 1.0, g["sat_fondo"], 0.090)
+    luce = colorsys.hsv_to_rgb((h + mezza) % 1.0, g["sat_luce"], 0.620)
     return fondo, luce
 
 

@@ -19,13 +19,16 @@ class ScenaWS:
         if frasi:
             self._coda.put({"tipo": "prepara", "frasi": frasi})
 
-    def prepara_mandala(self, petali, anelli, tonalita, seed):
+    def prepara_mandala(self, petali, anelli, tonalita, seed, emozione="Q2"):
+        # L'emozione viaggia con gli altri parametri perche' e' lei a decidere
+        # quanto il colore si apre in gradiente (vedi GRADIENTE in mandala.py).
         self._coda.put({
             "tipo": "prepara_mandala",
             "petali": int(petali),
             "anelli": int(anelli),
             "tonalita": float(tonalita),
             "seed": int(seed),
+            "emozione": str(emozione),
         })
 
     def polvere(self, transizione=0.0):

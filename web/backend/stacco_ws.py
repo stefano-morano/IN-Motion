@@ -9,8 +9,15 @@ possa importare il modulo originale (che richiederebbe sounddevice).
 """
 
 
+# Quanto resta della musica sotto la campana, come MOLTIPLICATORE del volume
+# di scena. NON zero: nel silenzio assoluto la campana si sente come
+# un'interruzione invece che come un passaggio. esperienza.py ne passa uno
+# calcolato sui suoi volumi (0.30 / 0.70).
+ATTENUAZIONE = 0.43
+
+
 class StaccoWS:
-    def __init__(self, sorgenti, sr=44100,
+    def __init__(self, sorgenti, sr=44100, attenuazione=ATTENUAZIONE,
                  discesa=2.2, respiro=1.4, ritorno=2.2):
         # Prende la coda dalla prima sorgente MusicaWS
         self._coda = None
@@ -19,6 +26,7 @@ class StaccoWS:
             if c is not None:
                 self._coda = c
                 break
+        self._attenuazione = attenuazione
         self._discesa = discesa
         self._respiro = respiro
         self._ritorno = ritorno
@@ -28,6 +36,7 @@ class StaccoWS:
             self._coda.put({
                 "tipo": "stacco",
                 "chiusura": bool(chiusura),
+                "attenuazione": float(self._attenuazione),
                 "discesa": self._discesa,
                 "respiro": self._respiro,
                 "ritorno": self._ritorno,

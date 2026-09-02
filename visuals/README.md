@@ -21,11 +21,11 @@ gli occhi.
    Il testo fra virgolette serve solo se il microfono non e' disponibile o non
    sente nulla.
 3. **Mettiti davanti alla telecamera** e aspetta qualche secondo. Non devi
-   fare altro. La finestra a schermo intero si apre da sola, **nera**; poi
-   l'immagine sale piano e compare una nuvola di particelle sospese; dopo
-   cinque secondi quelle particelle si raccolgono nel benvenuto. Portandosi in
-   primo piano tiene anche l'orologio di TD alla velocita' giusta, che prima
-   andava ricordato a mano.
+   fare altro. La finestra a schermo intero si apre da sola, **nera e muta**;
+   poi immagine e musica salgono insieme e compare una nuvola di particelle
+   sospese; dopo cinque secondi quelle particelle si raccolgono nel benvenuto.
+   Portandosi in primo piano tiene anche l'orologio di TD alla velocita'
+   giusta, che prima andava ricordato a mano.
 
    L'attesa e' voluta. Fra un lancio e l'altro TouchDesigner resta acceso e
    **congelato sull'ultima immagine di chi c'e' stato prima**: ricalcola solo
@@ -55,11 +55,14 @@ Gli occhi vanno tenuti chiusi (o aperti) **2 secondi** perche' il cambiamento
 conti: sotto quella soglia e' un battito di ciglia, non una scelta.
 
 Ogni volta che il cambiamento viene accettato si sente uno **stacco**: la
-musica scende a zero, suona una campana, e la musica della scena nuova
-rientra. E' l'unica risposta possibile a chi ha gli occhi chiusi — a occhi
-chiusi lo schermo non esiste, e il suono resta l'unico canale per dire "ti ho
-visto". Due note diverse per i due versi: grave quando chiudi, una quinta
-sopra quando riapri.
+musica scende dal 70% al 30%, suona una campana, e poi la musica risale.
+Non a zero: nel silenzio assoluto la campana si sente come un'interruzione,
+mentre un filo di musica sotto la tiene dentro il pezzo.
+
+E' l'unica risposta possibile a chi ha gli occhi chiusi: a occhi chiusi lo
+schermo non esiste, e il suono resta l'unico canale per dire "ti ho visto".
+Due note diverse per i due versi — grave quando chiudi, una quinta sopra
+quando riapri.
 
 Alla fine il mandala viene salvato anche come **immagine da portare via**, in
 `mandala/`, a 2400×2400 pixel. E' lo stesso disegno visto a schermo — stessi
@@ -101,8 +104,8 @@ tutte costanti in cima.
 
 **Python decide, TouchDesigner disegna.** Python manda sette soli messaggi OSC
 sulla porta 8001 (`/prepara`, `/mandala`, `/scena`, `/finestra`, `/azzera`,
-`/buio`, `/accendi`); i punti del viso viaggiano a parte sulla 8000. TD non sa nulla dell'esperienza: sa solo
-come passare da una forma all'altra.
+`/buio`, `/accendi`); i punti del viso viaggiano a parte sulla 8000. TD non sa
+nulla dell'esperienza: sa solo come passare da una forma all'altra.
 
 **Niente blocca il ciclo.** `esperienza.py` non aspetta mai: ad ogni fotogramma
 le si chiede "e adesso?". Le chiamate lente (Claude, Whisper) girano in thread
@@ -116,12 +119,26 @@ sente come un click. Quello che si accende e si spegne e' solo un interruttore.
 Per lo stesso motivo la campana non ha un flusso suo: si somma dentro quello
 del tappeto.
 
+**Immagine e musica aprono insieme.** Il tappeto non entra col benvenuto:
+sale nello stesso momento in cui lo schermo si accende, dallo stesso nero e
+con la stessa identica curva. Non sono due dissolvenze sincronizzate a mano —
+il volume audio usa la formula del Level TOP, e le due salite coincidono al
+millesimo. La traccia viene pero' CARICATA prima, a sipario chiuso: leggerla e
+filtrarla richiede circa un secondo e mezzo di lavoro che blocca il programma,
+e farlo mentre l'immagine sale inchioderebbe la dissolvenza a meta'.
+
 **La dissolvenza d'apertura non e' lineare.** L'occhio distingue molto meglio
 le differenze in penombra che quelle in piena luce: con una rampa lineare
 l'immagine "arriva" quasi subito e poi passa il resto del tempo a schiarire di
 poco. Elevando l'avanzamento a una potenza (`CURVA_DISSOLVENZA`) il nero resta
 nero piu' a lungo e la luce sale alla fine — a meta' tempo si e' al 22%, non al
 50%. Si vede nascere invece che comparire.
+
+**Un solo livello per tutta l'opera.** Qualunque cosa suoni — il tappeto o la
+traccia della meditazione — suona al 70%: cambia la musica, non quanto e'
+forte. Le due sole eccezioni sono funzionali: il tappeto scende al 30% mentre
+la persona parla (altrimenti Whisper sente lui e non lei) e tace del tutto
+durante la meditazione, per lasciare il campo alla traccia generata.
 
 **Volume e attenuazione sono due numeri diversi.** Il volume dice quanto forte
 va la musica in questa scena e lo decide la macchina a stati; l'attenuazione

@@ -19,12 +19,10 @@ La webcam lavora senza mostrare nulla: la finestra di anteprima esisteva solo
 per controllare cosa vedeva, e rubava il primo piano a TouchDesigner. Per
 riaccenderla in fase di debug, ANTEPRIMA_WEBCAM qui sotto.
 
-L'AVVIO E' LENTO DI PROPOSITO. Fra un lancio e l'altro TouchDesigner resta
-acceso e congelato sull'ultima immagine di chi c'e' stato prima, e si
-scongela solo quando ricomincia a ricevere punti dalla webcam. Per questo la
-finestra non si apre subito: prima si aspetta di aver visto un volto, poi si
-lascia alle particelle il tempo di tornarci sopra. Chi guarda trova la scena
-gia' pulita, e non assiste alla pulizia.
+L'AVVIO E' LENTO DI PROPOSITO, ma la finestra si apre SUBITO — nera. Dietro
+quel nero si accende la telecamera, si carica il modello di trascrizione, si
+aspetta di vedere un volto e si monta la scena; poi l'immagine sale. Chi
+guarda trova la scena gia' pronta, e non assiste ai preparativi.
 """
 
 import sys
@@ -43,9 +41,9 @@ from scena import Scena
 # quanto lasciamo alla finestra per aprirsi e prendere il primo piano
 SECONDI_PER_LA_FINESTRA = 1.5
 
-# Quanto aspettiamo di vedere un volto prima di aprire la finestra. Se non
-# arriva nessuno si parte lo stesso: l'opera deve reggere anche una stanza
-# vuota, o una prova fatta senza mettersi davanti.
+# Quanto aspettiamo, dietro al nero, di vedere un volto. Se non arriva nessuno
+# si parte lo stesso: l'opera deve reggere anche una stanza vuota, o una prova
+# fatta senza mettersi davanti all'obiettivo.
 MAX_ATTESA_VOLTO = 20.0
 
 # Quanto diamo a TouchDesigner per disegnare e campionare tutte le scritte
@@ -57,9 +55,9 @@ SECONDI_PER_DISEGNARE = 1.5
 # sessione precedente e si sparpagliano.
 SECONDI_PER_COMPORRE = 2.5
 
-# L'apertura, in tre tempi. Lo schermo si apre nero, l'immagine sale piano,
-# la nuvola resta sospesa — e solo dopo si raccoglie nelle prime parole.
-SECONDI_DI_BUIO = 0.4        # nero pieno: il primo fotogramma che si vede
+# L'apertura. Lo schermo e' nero da subito e ci resta per tutta la
+# preparazione; poi l'immagine sale piano, la nuvola resta sospesa, e solo
+# dopo si raccoglie nelle prime parole.
 DURATA_DISSOLVENZA = 3.0     # quanto ci mette l'immagine ad accendersi
 SECONDI_DI_POLVERE = 5.0     # nuvola a piena luce, prima che si raccolga
 
@@ -106,61 +104,65 @@ def main():
     print(f'racconto: "{racconto}"\n')
 
     scena = Scena()
-    # Per prima cosa, prima ancora della webcam e del modello di trascrizione:
-    # TouchDesigner e' rimasto acceso dalla sessione precedente e sta ancora
-    # mostrando la sua ultima schermata. Azzerare adesso, e non fra dieci
-    # secondi quando l'esperienza parte davvero, e' la differenza fra vedere
-    # il commiato di un altro e trovare la scena pulita.
+    # PRIMA DI OGNI ALTRA COSA. TouchDesigner e' rimasto acceso dalla sessione
+    # precedente e mostra ancora la sua ultima schermata: si azzera la scena,
+    # si spegne l'immagine, e si apre subito la finestra — nera.
+    #
+    # Aprirla adesso, e non a preparazione finita, e' la differenza fra un
+    # programma che parte e uno che sembra non partire. Quello che viene dopo
+    # — telecamera, modello di trascrizione, attesa di un volto davanti
+    # all'obiettivo — puo' prendere anche mezzo minuto, e in tutto quel tempo
+    # non si vedrebbe accadere niente. Il nero non e' un'attesa a vuoto: e'
+    # gia' il sipario, e dietro ci si prepara.
     scena.azzera()
-
-    volto = Volto(anteprima=ANTEPRIMA_WEBCAM)
-
-    # Il modello di trascrizione si carica adesso, non quando serve: farlo
-    # dopo aggiungerebbe secondi di attesa nel momento peggiore.
-    # La prima volta in assoluto viene anche scaricato (~150 MB).
-    try:
-        ascoltatore = Ascolto()
-    except Exception as errore:
-        print(f"ascolto non disponibile ({errore}) — useremo il racconto scritto")
-        ascoltatore = None
-
-    esperienza = Esperienza(scena, racconto, ascoltatore)
-
-    # ---- il risveglio, prima che chiunque possa vedere qualcosa ----
-    # Azzerare la scena da Python non basta a scongelare TouchDesigner: TD
-    # ricalcola solo quando gli arrivano dati NUOVI, e un dizionario Python
-    # non fa parte delle sue dipendenze. Finche' la webcam non manda punti,
-    # resta fermo sull'ultima immagine della sessione prima — che e'
-    # esattamente il "GRAZIE, A PRESTO" che si vedeva all'avvio.
-    # Quindi: prima la telecamera, poi la finestra. Mai il contrario.
-    if not attendi_volto(volto):
-        print("non ti ho visto, ma parto lo stesso")
-
-    # A sipario chiuso si monta la scena: TD disegna le scritte e le
-    # particelle si sparpagliano. Quando la finestra si apre si vede la
-    # nuvola, ferma e sospesa — non il volto dello spettatore, che a quel
-    # punto sarebbe il montaggio della scena e non l'opera.
-    esperienza.prepara_scritte()
-    pompa(volto, SECONDI_PER_DISEGNARE)
-    esperienza.mostra_polvere()
-    pompa(volto, SECONDI_PER_COMPORRE)
-
-    # L'immagine si spegne PRIMA che la finestra si apra: cosi' il primo
-    # fotogramma che lo spettatore vede e' nero, non la scena gia' accesa.
     scena.buio()
     if FINESTRA_A_SCHERMO_INTERO:
         scena.finestra(True)
-    else:
-        print("passa a TouchDesigner e lascialo davanti")
-        pompa(volto, SECONDI_PER_LA_FINESTRA)
 
-    pompa(volto, SECONDI_DI_BUIO)
-    scena.accendi(DURATA_DISSOLVENZA)
-    pompa(volto, DURATA_DISSOLVENZA + SECONDI_DI_POLVERE)
-
+    volto = None
+    esperienza = None
     try:
-        # e qui la polvere si raccoglie nelle prime parole. Da adesso corre il
-        # tempo dell'esperienza, e parte la musica.
+        volto = Volto(anteprima=ANTEPRIMA_WEBCAM)
+
+        # Il modello di trascrizione si carica adesso, non quando serve: farlo
+        # dopo aggiungerebbe secondi di attesa nel momento peggiore.
+        # La prima volta in assoluto viene anche scaricato (~150 MB).
+        try:
+            ascoltatore = Ascolto()
+        except Exception as errore:
+            print(f"ascolto non disponibile ({errore}) — useremo il racconto scritto")
+            ascoltatore = None
+
+        esperienza = Esperienza(scena, racconto, ascoltatore)
+
+        # ---- dietro al nero si monta la scena ----
+        # Azzerare da Python non basta a scongelare TouchDesigner: TD ricalcola
+        # le PARTICELLE solo quando gli arrivano punti nuovi. Quindi prima la
+        # telecamera, poi tutto il resto.
+        if not attendi_volto(volto):
+            print("non ti ho visto, ma parto lo stesso")
+
+        esperienza.prepara_scritte()
+        pompa(volto, SECONDI_PER_DISEGNARE)
+        esperienza.mostra_polvere()
+        # il tappeto si carica adesso: leggere e filtrare la traccia ferma il
+        # programma per un secondo e mezzo, e farlo mentre l'immagine sale
+        # inchioderebbe la dissolvenza a meta'
+        esperienza.prepara_tappeto()
+        pompa(volto, SECONDI_PER_COMPORRE)
+
+        if not FINESTRA_A_SCHERMO_INTERO:
+            print("passa a TouchDesigner e lascialo davanti")
+            pompa(volto, SECONDI_PER_LA_FINESTRA)
+
+        # immagine e musica salgono INSIEME, dallo stesso nero e con la stessa
+        # curva: e' un unico gesto di apertura, non due cose che si accavallano
+        scena.accendi(DURATA_DISSOLVENZA)
+        esperienza.avvia_tappeto(DURATA_DISSOLVENZA)
+        pompa(volto, DURATA_DISSOLVENZA + SECONDI_DI_POLVERE)
+
+        # e qui la polvere si raccoglie nelle prime parole. La musica sta gia'
+        # suonando: da adesso corre il tempo dell'esperienza.
         esperienza.avvia(time.time())
         while not esperienza.finita:
             punti = volto.aggiorna()
@@ -172,13 +174,16 @@ def main():
     except KeyboardInterrupt:
         print("\ninterrotto da tastiera")
     finally:
-        # anche se si interrompe a meta': un flusso audio aperto
-        # sopravviverebbe al programma
-        esperienza.ferma_suono()   # chiude anche il microfono
-        volto.chiudi()
+        # Vale anche se si e' rotto qualcosa a meta' preparazione, ed e' il
+        # motivo per cui tutta la preparazione sta dentro questo try: un flusso
+        # audio aperto sopravviverebbe al programma, e la finestra — che a quel
+        # punto e' gia' aperta e nera — coprirebbe lo schermo senza nemmeno un
+        # cursore per uscirne.
+        if esperienza is not None:
+            esperienza.ferma_suono()   # chiude anche il microfono
+        if volto is not None:
+            volto.chiudi()
         if FINESTRA_A_SCHERMO_INTERO:
-            # anche dopo un Ctrl+C: una finestra a schermo intero rimasta
-            # aperta coprirebbe tutto, e senza cursore visibile
             scena.finestra(False)
         print("fermato.")
 

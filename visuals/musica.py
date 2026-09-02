@@ -147,34 +147,50 @@ class _Rampa:
     mentre Whisper satura la CPU per qualche secondo.
 
     Sta qui come classe a se' perche' ne servono DUE per sorgente, con vite
-    completamente separate: vedi Music."""
+    completamente separate: vedi Music.
+
+    LA CURVA. Di norma la rampa e' lineare, ed e' giusto cosi' per i cambi di
+    volume fra una scena e l'altra. Con curva > 1 la salita e' invece lenta
+    all'inizio e rapida alla fine: serve a far coincidere una dissolvenza
+    sonora con una dissolvenza visiva, che per come funziona l'occhio non puo'
+    essere lineare."""
 
     def __init__(self, valore=0.0):
         self.valore = float(valore)
+        self.partenza = float(valore)
         self.obiettivo = float(valore)
-        self.passo = 0.0
+        self.avanzamento = 1.0     # 0 = appena partita, 1 = arrivata
+        self.passo = 0.0           # quanto avanza ad ogni campione
+        self.curva = 1.0
 
-    def vai_a(self, obiettivo, secondi, sr=SAMPLE_RATE):
+    def vai_a(self, obiettivo, secondi, sr=SAMPLE_RATE, curva=1.0):
+        self.partenza = self.valore
         self.obiettivo = float(obiettivo)
+        self.curva = float(curva)
         if secondi > 0:
-            self.passo = (self.obiettivo - self.valore) / (secondi * sr)
+            self.avanzamento = 0.0
+            self.passo = 1.0 / (secondi * sr)
         else:
-            self.valore, self.passo = self.obiettivo, 0.0
+            self.valore = self.obiettivo
+            self.avanzamento, self.passo = 1.0, 0.0
 
     def salta_a(self, valore):
         """Senza rampa. Solo per far ripartire una traccia da zero."""
-        self.valore = self.obiettivo = float(valore)
-        self.passo = 0.0
+        self.valore = self.partenza = self.obiettivo = float(valore)
+        self.avanzamento, self.passo, self.curva = 1.0, 0.0, 1.0
 
     def blocco(self, frames):
         """I guadagni per i prossimi 'frames' campioni. Avanza la rampa."""
         if self.passo == 0.0:
             return np.full(frames, self.valore, dtype=np.float32)
-        g = self.valore + self.passo * np.arange(1, frames + 1)
-        basso, alto = sorted((self.valore, self.obiettivo))
-        g = np.clip(g, basso, alto).astype(np.float32)
+        a = self.avanzamento + self.passo * np.arange(1, frames + 1)
+        np.clip(a, 0.0, 1.0, out=a)
+        self.avanzamento = float(a[-1])
+        forma = a if self.curva == 1.0 else a ** self.curva
+        g = (self.partenza
+             + (self.obiettivo - self.partenza) * forma).astype(np.float32)
         self.valore = float(g[-1])
-        if abs(self.valore - self.obiettivo) < 1e-4:
+        if self.avanzamento >= 1.0:
             self.valore, self.passo = self.obiettivo, 0.0
         return g
 
@@ -207,6 +223,9 @@ class Music:
         # niente flusso in piu', si somma dentro questo
         self._campione = None
         self._campione_pos = 0
+        self._sorgente = None
+        self._emozione = None
+        self._morbido = False
         self._lock = threading.Lock()
 
     def _callback(self, outdata, frames, time_info, status):
@@ -264,8 +283,19 @@ class Music:
             self._campione = campione
             self._campione_pos = 0
 
-    def play(self, emotion, fade=3.0, loop=True, volume=1.0, morbido=False):
-        """morbido=True e' la voce del tappeto: piu' grave, piu' rada, con
+    def carica(self, emotion, loop=True, morbido=False):
+        """Prepara una traccia SENZA farla partire. Resta muta e pronta.
+
+        E' separata da parti() per una ragione di tempi: qui dentro si legge
+        il file, lo si ricampiona e ci si passa un filtro in frequenza su
+        milioni di campioni. Sono uno o due secondi in cui il programma sta
+        fermo. Farlo nel momento in cui la musica deve entrare significa
+        bloccare il ciclo principale proprio mentre l'immagine sta salendo:
+        TouchDesigner smetterebbe di ricevere punti e la dissolvenza si
+        vedrebbe inchiodare a meta'. Si carica quindi prima, a sipario chiuso,
+        e quando serve si fa partire e basta.
+
+        morbido=True e' la voce del tappeto: piu' grave, piu' rada, con
         attacchi piu' lenti. La traccia della meditazione resta com'e'."""
         path = _pick_file(emotion, self.library, piu_rada=morbido)
         if not path:
@@ -277,15 +307,38 @@ class Music:
             data = _rendi_ciclabile(data, sr)
         with self._lock:
             self._data, self._pos, self._loop = data, 0, loop
-            if fade > 0:
-                self._volume.salta_a(0.0)
-                self._volume.vai_a(volume, fade, sr)
-            else:
-                self._volume.salta_a(volume)
+            self._volume.salta_a(0.0)      # muta finche' non si dice parti()
         if not self.apri(sr):
             return None
-        print(f"music: {os.path.basename(path)} ({emotion})"
-              + (" [tappeto ammorbidito]" if morbido else ""))
+        self._sorgente = os.path.basename(path)
+        self._emozione = emotion
+        self._morbido = morbido
+        return path
+
+    def parti(self, fade=3.0, volume=1.0, curva=1.0):
+        """Fa salire il volume della traccia gia' caricata.
+
+        'curva' > 1 rende la salita lenta all'inizio e rapida alla fine: e'
+        cosi' che si fa coincidere con una dissolvenza visiva."""
+        if self._data is None:
+            return None
+        with self._lock:
+            if fade > 0:
+                self._volume.salta_a(0.0)
+                self._volume.vai_a(volume, fade, curva=curva)
+            else:
+                self._volume.salta_a(volume)
+        print(f"music: {self._sorgente} ({self._emozione})"
+              + (" [tappeto ammorbidito]" if self._morbido else ""))
+        return self._sorgente
+
+    def play(self, emotion, fade=3.0, loop=True, volume=1.0, morbido=False):
+        """carica() e parti() in un colpo solo, per chi non ha tempi da
+        rispettare al fotogramma."""
+        path = self.carica(emotion, loop, morbido)
+        if path is None:
+            return None
+        self.parti(fade=fade, volume=volume)
         return path
 
     def apri(self, sr=SAMPLE_RATE):
@@ -309,7 +362,12 @@ class Music:
             self._stream = None
             return False
 
-    def volume(self, livello, fade=2.0):
+    @property
+    def pronta(self):
+        """True se una traccia e' gia' caricata e aspetta solo di partire."""
+        return self._data is not None
+
+    def volume(self, livello, fade=2.0, curva=1.0):
         """Quanto forte va questa musica nella scena in corso.
 
         E' cosi' che il tappeto si abbassa quando l'utente deve parlare e
@@ -317,7 +375,8 @@ class Music:
         mentre questa rampa e' in corso, le due cose si moltiplicano e
         finiscono entrambe dove volevano andare."""
         with self._lock:
-            self._volume.vai_a(max(0.0, min(1.0, float(livello))), fade)
+            self._volume.vai_a(max(0.0, min(1.0, float(livello))), fade,
+                               curva=curva)
 
     def attenua(self, livello, fade=0.8):
         """Quanto abbassare la musica in questo momento per far posto ad altro.

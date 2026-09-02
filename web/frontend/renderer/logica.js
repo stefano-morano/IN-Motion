@@ -177,9 +177,13 @@ export class LogicaParticelle {
         this._c.testi = testi;
     }
 
-    prepara_mandala(petali, anelli, tonalita, seed) {
+    prepara_mandala(petali, anelli, tonalita, seed, emozione = 'Q2') {
         const n = this._c.n || TOTALE_PARTICELLE;
         this._c.mandala_tonalita = tonalita;
+        // L'emozione decide quanto il colore si apre in gradiente (GRADIENTE in
+        // mandala.py). Il gradiente non e' ancora portato in JavaScript: il
+        // valore si conserva qui perche' chi lo portera' lo trovi gia' pronto.
+        this._c.mandala_emozione = emozione;
         this._genera_mandala(n, petali, anelli, seed);
     }
 

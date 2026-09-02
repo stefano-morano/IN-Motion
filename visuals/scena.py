@@ -3,7 +3,7 @@ La scena: manda a TouchDesigner i comandi su cosa mostrare.
 
 Quattro messaggi, sulla porta 8001:
   /prepara  "frase" "frase" ...        -> TD disegna le scritte e ne ricava le posizioni
-  /mandala  petali anelli tonalita seed -> TD genera le posizioni del mandala
+  /mandala  petali anelli tonalita seed emozione -> TD genera le posizioni del mandala
   /scena    tipo testo durata          -> TD parte con la transizione
                                            (tipo = volto / testo / mandala /
                                             polvere / dissoluzione)
@@ -77,13 +77,17 @@ class Scena:
         self.client.send_message("/finestra", [1 if apri else 0])
         print(f"scena: finestra {'aperta' if apri else 'chiusa'}")
 
-    def prepara_mandala(self, petali, anelli, tonalita, seed):
+    def prepara_mandala(self, petali, anelli, tonalita, seed, emozione="Q2"):
         """Come prepara(), ma per il mandala: niente da disegnare, solo
-        numeri — TD lo genera per calcolo puro."""
+        numeri — TD lo genera per calcolo puro.
+
+        L'emozione viaggia con gli altri parametri perche' e' lei a decidere
+        quanto il colore si apre in gradiente (vedi GRADIENTE in mandala.py)."""
         self.client.send_message(
-            "/mandala", [int(petali), int(anelli), float(tonalita), int(seed)]
+            "/mandala",
+            [int(petali), int(anelli), float(tonalita), int(seed), str(emozione)],
         )
-        print(f"scena: preparo il mandala ({petali} petali, {anelli} anelli)")
+        print(f"scena: preparo il mandala ({petali} petali, {anelli} anelli, {emozione})")
 
     def polvere(self, transizione=0.0):
         """Le particelle sparse a caso: la nuvola dell'apertura.

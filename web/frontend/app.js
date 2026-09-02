@@ -109,12 +109,47 @@ class AudioManager {
         return buf;
     }
 
+    /**
+     * Porta un AudioParam da 'da' ad 'a' in 'durata' secondi.
+     * da === null significa "da dove si trova adesso".
+     *
+     * Con curva > 1 la salita e' lenta all'inizio e rapida alla fine. Serve a
+     * far coincidere una dissolvenza sonora con una visiva: l'occhio distingue
+     * molto meglio le differenze in penombra, quindi con una rampa lineare
+     * l'immagine "arriva" quasi subito. Web Audio non ha rampe a potenza: la
+     * curva si campiona a mano.
+     */
+    _rampa(param, da, a, durata, curva = 1) {
+        const t = this.ctx.currentTime;
+        param.cancelScheduledValues(t);
+        const partenza = (da === null || da === undefined) ? param.value : da;
+        if (!durata || durata <= 0) { param.setValueAtTime(a, t); return; }
+        if (curva === 1) {
+            param.setValueAtTime(partenza, t);
+            param.linearRampToValueAtTime(a, t + durata);
+            return;
+        }
+        const n = 64, punti = new Float32Array(n);
+        for (let i = 0; i < n; i++) {
+            punti[i] = partenza + (a - partenza) * Math.pow(i / (n - 1), curva);
+        }
+        try {
+            param.setValueCurveAtTime(punti, t, durata);
+        } catch (e) {
+            // setValueCurveAtTime rifiuta di sovrapporsi a eventi gia' in coda.
+            // Meglio una dissolvenza lineare che nessuna dissolvenza.
+            param.setValueAtTime(partenza, t);
+            param.linearRampToValueAtTime(a, t + durata);
+        }
+    }
+
     async handle(msg) {
-        const { azione, sorgente: nome, emozione, fade, volume, durata, val } = msg;
+        const { azione, sorgente: nome, emozione, fade, volume, durata, val,
+                curva } = msg;
         const s = this._sorgenti[nome];
         if (!s) return;
 
-        if (azione === 'play') {
+        if (azione === 'play' || azione === 'carica') {
             await this._ensure();
             this._stop(nome);
             const idx = Math.floor(Math.random() * 4).toString().padStart(2, '0');
@@ -131,47 +166,49 @@ class AudioManager {
                 s.node.loop = true;
                 s.node.connect(s.gainVol);
                 s.node.start();
-                s.volume = volume ?? 1;
-                const t = this.ctx.currentTime;
-                s.gainVol.gain.setValueAtTime(0, t);
-                s.gainVol.gain.linearRampToValueAtTime(s.volume, t + (fade || 0.1));
+                if (azione === 'play') {
+                    s.volume = volume ?? 1;
+                    this._rampa(s.gainVol.gain, 0, s.volume, fade || 0.1);
+                } else {
+                    // 'carica': la traccia gira gia' ma muta, e aspetta 'parti'
+                    s.volume = 0;
+                }
             } catch (e) {
-                console.warn('audio play error:', e);
+                console.warn('audio ' + azione + ' error:', e);
             }
+        } else if (azione === 'parti') {
+            if (!s.gainVol) return;
+            s.volume = volume ?? 1;
+            this._rampa(s.gainVol.gain, 0, s.volume, fade || 0.1, curva || 1);
         } else if (azione === 'volume') {
             if (!s.gainVol) return;
             s.volume = volume;
-            const t = this.ctx.currentTime;
-            s.gainVol.gain.cancelScheduledValues(t);
-            s.gainVol.gain.setValueAtTime(s.gainVol.gain.value, t);
-            s.gainVol.gain.linearRampToValueAtTime(volume, t + (fade || 0.1));
+            this._rampa(s.gainVol.gain, null, volume, fade || 0.1, curva || 1);
         } else if (azione === 'fade_out') {
             if (!s.gainVol) return;
-            const t = this.ctx.currentTime;
-            s.gainVol.gain.cancelScheduledValues(t);
-            s.gainVol.gain.setValueAtTime(s.gainVol.gain.value, t);
-            s.gainVol.gain.linearRampToValueAtTime(0, t + (durata || 1));
+            this._rampa(s.gainVol.gain, null, 0, durata || 1);
         } else if (azione === 'ferma') {
             this._stop(nome);
         } else if (azione === 'attenua') {
             if (!s.gainAtt) return;
-            const t = this.ctx.currentTime;
-            s.gainAtt.gain.cancelScheduledValues(t);
-            s.gainAtt.gain.setValueAtTime(s.gainAtt.gain.value, t);
-            s.gainAtt.gain.linearRampToValueAtTime(val, t + (fade || 0.1));
+            this._rampa(s.gainAtt.gain, null, val, fade || 0.1);
         }
     }
 
-    stacco(chiusura, discesa, respiro, ritorno) {
-        // Abbassa entrambe le sorgenti, suona la campanella, le rialza
+    stacco(chiusura, discesa, respiro, ritorno, attenuazione) {
+        // Abbassa entrambe le sorgenti, suona la campanella, le rialza.
+        // NON fino a zero: nel silenzio assoluto la campana suona come
+        // un'interruzione invece che come un passaggio.
+        const giu = (attenuazione === undefined || attenuazione === null)
+                    ? 0.43 : attenuazione;
         for (const nome of ['principale', 'tappeto']) {
             const s = this._sorgenti[nome];
             if (!s.gainAtt || !this.ctx) continue;
             const t = this.ctx.currentTime;
             s.gainAtt.gain.cancelScheduledValues(t);
             s.gainAtt.gain.setValueAtTime(s.gainAtt.gain.value, t);
-            s.gainAtt.gain.linearRampToValueAtTime(0, t + discesa);
-            s.gainAtt.gain.setValueAtTime(0, t + discesa + respiro);
+            s.gainAtt.gain.linearRampToValueAtTime(giu, t + discesa);
+            s.gainAtt.gain.setValueAtTime(giu, t + discesa + respiro);
             s.gainAtt.gain.linearRampToValueAtTime(1, t + discesa + respiro + ritorno);
         }
         // Campana sintetizzata
@@ -421,7 +458,8 @@ function connect() {
             console.log(`prepara: ${msg.frasi.length} scritte in ${(performance.now()-t0).toFixed(0)}ms`);
 
         } else if (tipo === 'prepara_mandala') {
-            logica.prepara_mandala(msg.petali, msg.anelli, msg.tonalita, msg.seed);
+            logica.prepara_mandala(msg.petali, msg.anelli, msg.tonalita, msg.seed,
+                                   msg.emozione);
 
         } else if (tipo === 'vai_a') {
             logica.vai_a(msg.scena, msg.testo, msg.durata);
@@ -443,7 +481,8 @@ function connect() {
             await audio.handle(msg);
 
         } else if (tipo === 'stacco') {
-            audio.stacco(msg.chiusura, msg.discesa, msg.respiro, msg.ritorno);
+            audio.stacco(msg.chiusura, msg.discesa, msg.respiro, msg.ritorno,
+                         msg.attenuazione);
 
         } else if (tipo === 'stacco_annulla') {
             audio.staccoAnnulla();

@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IN-Motion</title>
+  <link rel="icon" href="/assets/favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="/assets/favicon.png">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #000; overflow: hidden; font-family: system-ui, sans-serif; }
+
+    #canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    /* Webcam nascosta: serve solo per MediaPipe, non per lo spettatore */
+    #video {
+      position: absolute; top: -9999px; left: -9999px;
+      width: 640px; height: 480px;
+    }
+
+    /* Overlay di ingresso */
+    #ui {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      display: flex;
+      align-items: flex-end;
+      gap: 0.75rem;
+      padding: 2rem;
+      background: linear-gradient(transparent, rgba(0,0,0,0.85));
+      transition: opacity 0.5s;
+    }
+    #ui.nascosto { opacity: 0; pointer-events: none; }
+
+    #ui-step1 {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+    }
+    #ui-step1.nascosto { display: none; }
+
+    #ui-racconto {
+      display: none;
+      flex: 1;
+      align-items: flex-end;
+      gap: 0.75rem;
+    }
+    #ui-racconto.visibile {
+      display: flex;
+    }
+
+    #racconto {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.20);
+      border-radius: 10px;
+      color: #fff;
+      padding: 0.8rem 1rem;
+      font-size: 1rem;
+      line-height: 1.5;
+      resize: none;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    #racconto::placeholder { color: rgba(255,255,255,0.35); }
+    #racconto:focus { border-color: rgba(255,255,255,0.50); }
+
+    .btn-pill {
+      position: relative;
+      background: linear-gradient(
+        145deg,
+        rgba(255, 255, 255, 0.20) 0%,
+        rgba(255, 255, 255, 0.08) 45%,
+        rgba(190, 205, 255, 0.14) 100%
+      );
+      border: 1px solid rgba(255, 255, 255, 0.38);
+      border-radius: 999px;
+      color: #fff;
+      padding: 1rem 3rem;
+      font-size: 0.95rem;
+      font-weight: 300;
+      letter-spacing: 0.32em;
+      text-indent: 0.32em;
+      cursor: pointer;
+      white-space: nowrap;
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      box-shadow:
+        0 4px 24px rgba(0, 0, 0, 0.35),
+        0 0 40px rgba(255, 255, 255, 0.07),
+        0 0 80px rgba(160, 185, 255, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.28);
+      transition:
+        background 0.35s ease,
+        border-color 0.35s ease,
+        box-shadow 0.35s ease,
+        transform 0.25s ease;
+    }
+    #inizia {
+      letter-spacing: 0.32em;
+      text-indent: 0.32em;
+      padding: 1rem 3rem;
+    }
+    #btn-fine-riflessione {
+      letter-spacing: 0.22em;
+      text-indent: 0.22em;
+      padding: 0.85rem 2.5rem;
+      font-size: 0.88rem;
+    }
+    .btn-pill::before {
+      content: '';
+      position: absolute;
+      inset: -1px;
+      border-radius: inherit;
+      padding: 1px;
+      background: linear-gradient(
+        145deg,
+        rgba(255, 255, 255, 0.45),
+        rgba(255, 255, 255, 0.05) 50%,
+        rgba(180, 200, 255, 0.25)
+      );
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      pointer-events: none;
+      opacity: 0.7;
+    }
+    .btn-pill:hover {
+      background: linear-gradient(
+        145deg,
+        rgba(255, 255, 255, 0.28) 0%,
+        rgba(255, 255, 255, 0.14) 45%,
+        rgba(190, 205, 255, 0.22) 100%
+      );
+      border-color: rgba(255, 255, 255, 0.55);
+      box-shadow:
+        0 6px 28px rgba(0, 0, 0, 0.4),
+        0 0 48px rgba(255, 255, 255, 0.12),
+        0 0 96px rgba(160, 185, 255, 0.14),
+        inset 0 1px 0 rgba(255, 255, 255, 0.38);
+      transform: translateY(-2px);
+    }
+    .btn-pill:active {
+      transform: translateY(0) scale(0.98);
+      box-shadow:
+        0 2px 16px rgba(0, 0, 0, 0.35),
+        0 0 24px rgba(255, 255, 255, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+
+    #continua {
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 10px;
+      color: #fff;
+      padding: 0.8rem 1.6rem;
+      font-size: 1rem;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.2s;
+    }
+    #continua:hover { background: rgba(255,255,255,0.22); }
+
+    /* Controlli in alto a sinistra (colonna) */
+    #controls-left {
+      position: fixed;
+      top: 1rem;
+      left: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      z-index: 100;
+      overflow: visible;
+    }
+    .ctrl-item {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .ctrl-item.aperto {
+      z-index: 30;
+    }
+    .btn-symbol {
+      position: relative;
+      width: 2.5rem;
+      height: 2.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: none;
+      border: none;
+      padding: 0;
+      cursor: pointer;
+      transition: transform 0.25s ease;
+    }
+    .btn-symbol .ctrl-symbol {
+      width: 1.7rem;
+      height: 1.7rem;
+      object-fit: contain;
+      display: block;
+      opacity: 0.68;
+      filter: drop-shadow(0 0 0 transparent);
+      transition:
+        opacity 0.35s ease,
+        filter 0.35s ease,
+        transform 0.25s ease;
+    }
+    .btn-symbol:hover .ctrl-symbol {
+      opacity: 1;
+      transform: scale(1.08);
+      filter:
+        drop-shadow(0 0 8px rgba(255, 255, 255, 0.45))
+        drop-shadow(0 0 22px rgba(160, 185, 255, 0.28));
+    }
+    .btn-symbol:hover {
+      transform: translateY(-2px);
+    }
+    .btn-symbol:active {
+      transform: translateY(0) scale(0.94);
+    }
+    .btn-symbol.attivo .ctrl-symbol {
+      opacity: 0.38;
+      filter: grayscale(0.6) drop-shadow(0 0 4px rgba(255, 100, 100, 0.25));
+    }
+    .ctrl-symbol--avatar {
+      width: 1.7rem;
+      height: 1.7rem;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+    .ctrl-flyout {
+      display: none;
+      position: fixed;
+      transform: translateY(-50%);
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(8, 12, 24, 0.94);
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 8px;
+      padding: 0.45rem 0.65rem;
+      white-space: nowrap;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.45);
+      z-index: 120;
+      pointer-events: auto;
+    }
+    .ctrl-flyout.aperto { display: flex; }
+    #utente-flyout {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.35rem;
+      padding: 0.55rem 0.75rem;
+    }
+    #utente-nome {
+      color: rgba(255,255,255,0.45);
+      font-size: 0.68rem;
+      max-width: 140px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #btn-logout {
+      background: none;
+      border: none;
+      color: rgba(255,255,255,0.55);
+      font-size: 0.72rem;
+      cursor: pointer;
+      padding: 0;
+      text-decoration: underline;
+    }
+    #btn-logout:hover { color: #fff; }
+    #volume-flyout { padding: 0.5rem 0.75rem; }
+    #volume-slider {
+      width: 110px;
+      height: 4px;
+      margin: 0;
+      accent-color: rgba(255, 255, 255, 0.55);
+      cursor: pointer;
+    }
+    #ctrl-item-profilo {
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.35s;
+    }
+    #ctrl-item-profilo.visibile {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* Modal istruzioni */
+    #modal-info {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+    }
+    #modal-info.visibile { display: flex; }
+    #modal-box {
+      background: rgba(10,15,30,0.97);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 14px;
+      padding: 2rem 2.5rem;
+      max-width: 480px;
+      width: 90%;
+      color: rgba(255,255,255,0.85);
+      font-size: 0.9rem;
+      line-height: 1.7;
+    }
+    #modal-box h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      color: #fff;
+      letter-spacing: 0.05em;
+    }
+    #modal-box ol { padding-left: 1.2rem; }
+    #modal-box li { margin-bottom: 0.5rem; }
+    #modal-chiudi {
+      margin-top: 1.5rem;
+      display: block;
+      width: 100%;
+      background: rgba(255,255,255,0.10);
+      border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 8px;
+      color: #fff;
+      padding: 0.6rem;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    #modal-chiudi:hover { background: rgba(255,255,255,0.20); }
+
+    /* Login overlay */
+    #login-overlay {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      z-index: 500;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.4s;
+    }
+    #login-overlay.nascosto { opacity: 0; pointer-events: none; display: none; }
+    #login-box {
+      width: 340px;
+      background: rgba(10,14,28,0.96);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 16px;
+      padding: 2rem 2rem 1.5rem;
+      color: #fff;
+    }
+    #login-box h1 {
+      font-size: 1.4rem;
+      font-weight: 300;
+      letter-spacing: 0.20em;
+      text-align: center;
+      margin-bottom: 0.3rem;
+    }
+    .logo-login {
+      display: block;
+      width: 100%;
+      max-width: 240px;
+      height: auto;
+      margin: 0 auto 0.6rem;
+    }
+    #login-box .sottotitolo {
+      color: rgba(255,255,255,0.35);
+      font-size: 0.75rem;
+      text-align: center;
+      margin-bottom: 1.5rem;
+      letter-spacing: 0.05em;
+    }
+    /* Tab Accedi / Registrati */
+    #login-tabs {
+      display: flex;
+      border-bottom: 1px solid rgba(255,255,255,0.12);
+      margin-bottom: 1.4rem;
+    }
+    .login-tab {
+      flex: 1;
+      background: none;
+      border: none;
+      color: rgba(255,255,255,0.40);
+      font-size: 0.85rem;
+      padding: 0.5rem;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .login-tab.attivo {
+      color: #fff;
+      border-bottom-color: rgba(255,255,255,0.60);
+    }
+    /* Campi form */
+    .campo-auth {
+      width: 100%;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      color: #fff;
+      padding: 0.65rem 0.9rem;
+      font-size: 0.9rem;
+      margin-bottom: 0.75rem;
+      outline: none;
+      box-sizing: border-box;
+      transition: border-color 0.2s;
+    }
+    .campo-auth::placeholder { color: rgba(255,255,255,0.30); }
+    .campo-auth:focus { border-color: rgba(255,255,255,0.40); }
+    /* Pulsante submit */
+    #btn-submit-auth {
+      width: 100%;
+      background: rgba(255,255,255,0.14);
+      border: 1px solid rgba(255,255,255,0.30);
+      border-radius: 8px;
+      color: #fff;
+      padding: 0.7rem;
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s;
+      margin-bottom: 0.5rem;
+    }
+    #btn-submit-auth:hover { background: rgba(255,255,255,0.22); }
+    /* Link password dimenticata */
+    #link-reset {
+      display: block;
+      text-align: right;
+      color: rgba(255,255,255,0.35);
+      font-size: 0.75rem;
+      cursor: pointer;
+      margin-bottom: 1rem;
+      text-decoration: underline;
+    }
+    #link-reset:hover { color: rgba(255,255,255,0.65); }
+    /* Separatore */
+    .separatore {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      color: rgba(255,255,255,0.25);
+      font-size: 0.75rem;
+      margin: 0.75rem 0;
+    }
+    .separatore::before, .separatore::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: rgba(255,255,255,0.12);
+    }
+    /* Pulsante Google */
+    #btn-google {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.65rem;
+      width: 100%;
+      background: #fff;
+      color: #333;
+      border: none;
+      border-radius: 8px;
+      padding: 0.65rem;
+      font-size: 0.88rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+    #btn-google:hover { background: #f0f0f0; }
+    #btn-google:active { transform: scale(0.97); }
+    #login-errore {
+      margin-top: 0.75rem;
+      color: rgba(255,100,100,0.85);
+      font-size: 0.78rem;
+      min-height: 1rem;
+      text-align: center;
+    }
+    #login-ok {
+      margin-top: 0.75rem;
+      color: rgba(100,220,120,0.85);
+      font-size: 0.78rem;
+      min-height: 1rem;
+      text-align: center;
+    }
+
+    /* Info utente — ora dentro #controls-left */
+
+    /* ---------------------------------------------------------------- Testo sessione (visibile durante la meditazione) */
+    #testo-sessione {
+      position: fixed;
+      bottom: 2rem;
+      left: 50%;
+      transform: translateX(-50%);
+      max-width: 640px;
+      width: 88vw;
+      text-align: center;
+      color: rgba(255,255,255,0.22);
+      font-size: 0.8rem;
+      font-style: italic;
+      letter-spacing: 0.04em;
+      pointer-events: none;
+      z-index: 10;
+      opacity: 0;
+      transition: opacity 1.5s;
+      line-height: 1.6;
+    }
+    #testo-sessione.visibile { opacity: 1; }
+
+    #ui-riflessione {
+      position: fixed;
+      bottom: 5.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 15;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.5s;
+    }
+    #ui-riflessione.visibile {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* ---------------------------------------------------------------- Pulsante microfono */
+    .btn-mic {
+      flex: 0 0 auto;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 10px;
+      color: rgba(255,255,255,0.55);
+      padding: 0.8rem 0.9rem;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+      white-space: nowrap;
+    }
+    .btn-mic:hover { background: rgba(255,255,255,0.14); color: #fff; }
+    .btn-mic.rec {
+      background: rgba(220,60,60,0.15);
+      border-color: rgba(220,80,80,0.45);
+      color: rgba(255,110,110,0.95);
+      animation: pulse-mic 1.2s ease-in-out infinite;
+    }
+    @keyframes pulse-mic { 0%,100%{ opacity:1 } 50%{ opacity:0.6 } }
+
+    /* ---------------------------------------------------------------- Pannelli modali (post, risultati, calendario) */
+    .pannello-modale {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.94);
+      z-index: 600;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      overflow-y: auto;
+    }
+    .pannello-modale.visibile { display: flex; }
+
+    /* Durante l'esperienza: overlay in basso, volto e musica restano visibili */
+    .pannello-modale.overlay-esperienza {
+      background: linear-gradient(transparent 0%, rgba(0,0,0,0.35) 35%, rgba(0,0,0,0.88) 100%);
+      align-items: flex-end;
+      justify-content: center;
+      padding: 0 1rem 1.5rem;
+      pointer-events: none;
+    }
+    .pannello-modale.overlay-esperienza .pannello-box {
+      pointer-events: auto;
+      width: min(640px, 96vw);
+      max-height: 72vh;
+      overflow-y: auto;
+      background: rgba(8, 12, 24, 0.94);
+      backdrop-filter: blur(8px);
+    }
+
+    .pannello-box {
+      width: min(580px, 92vw);
+      background: rgba(8,12,24,0.98);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 16px;
+      padding: 2rem 2rem 1.5rem;
+      color: #fff;
+      margin: auto;
+    }
+    .pannello-box h2 {
+      font-size: 0.95rem;
+      font-weight: 300;
+      letter-spacing: 0.18em;
+      text-align: center;
+      margin-bottom: 1.5rem;
+      color: rgba(255,255,255,0.75);
+    }
+    #panel-risultati .pannello-box {
+      width: min(520px, 94vw);
+      max-height: min(88vh, 640px);
+      overflow-y: auto;
+      padding: 1.25rem 1.35rem 1rem;
+    }
+    #panel-risultati .pannello-box h2 {
+      margin-bottom: 0.85rem;
+      font-size: 0.82rem;
+    }
+    #panel-risultati .btn-riga {
+      margin-top: 0.5rem;
+      position: sticky;
+      bottom: 0;
+      background: linear-gradient(transparent, rgba(8,12,24,0.98) 30%);
+      padding-top: 0.5rem;
+    }
+    .pannello-desc {
+      color: rgba(255,255,255,0.40);
+      font-size: 0.82rem;
+      text-align: center;
+      margin-bottom: 1.2rem;
+      line-height: 1.6;
+    }
+
+    /* Post-meditazione */
+    #testo-post {
+      width: 100%;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      color: #fff;
+      padding: 0.75rem 0.9rem;
+      font-size: 0.9rem;
+      font-family: inherit;
+      resize: none;
+      outline: none;
+      margin: 0.75rem 0;
+      line-height: 1.5;
+      transition: border-color 0.2s;
+    }
+    #testo-post:focus { border-color: rgba(255,255,255,0.35); }
+    .mic-riga {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.5rem;
+    }
+    .mic-stato {
+      color: rgba(255,255,255,0.30);
+      font-size: 0.75rem;
+      font-style: italic;
+    }
+
+    /* Pulsanti pannello */
+    .btn-pannello {
+      width: 100%;
+      background: rgba(255,255,255,0.10);
+      border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 8px;
+      color: #fff;
+      padding: 0.7rem;
+      font-size: 0.88rem;
+      font-weight: 400;
+      cursor: pointer;
+      transition: background 0.2s;
+      margin-top: 0.5rem;
+    }
+    .btn-pannello:hover { background: rgba(255,255,255,0.18); }
+    .btn-pannello.secondario {
+      background: transparent;
+      border-color: rgba(255,255,255,0.12);
+      color: rgba(255,255,255,0.45);
+    }
+    .btn-pannello.secondario:hover { color: rgba(255,255,255,0.75); background: rgba(255,255,255,0.06); }
+    .btn-riga { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+    .btn-riga .btn-pannello { margin-top: 0; }
+
+    /* Grafici */
+    .grafico-wrap {
+      margin-bottom: 0.75rem;
+    }
+    .grafico-wrap h3 {
+      font-size: 0.65rem;
+      font-weight: 400;
+      letter-spacing: 0.10em;
+      color: rgba(255,255,255,0.35);
+      text-align: center;
+      margin-bottom: 0.35rem;
+    }
+    .grafico-canvas-wrap {
+      position: relative;
+      height: 72px;
+      width: 100%;
+    }
+    .grafico-canvas-wrap canvas {
+      display: block;
+      width: 100% !important;
+      height: 100% !important;
+    }
+    .grafico-spiegazione {
+      font-size: 0.72rem;
+      color: rgba(255,255,255,0.38);
+      text-align: center;
+      margin-top: 0.35rem;
+      line-height: 1.45;
+    }
+    .risultati-analisi {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 0.65rem 0.85rem;
+      font-size: 0.78rem;
+      color: rgba(255,255,255,0.55);
+      line-height: 1.5;
+      margin: 0.65rem 0;
+    }
+    .risultati-analisi strong {
+      color: rgba(255,255,255,0.80);
+      display: block;
+      margin-bottom: 0.4rem;
+      font-size: 0.78rem;
+      letter-spacing: 0.08em;
+    }
+
+    /* Calendario */
+    #cal-nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+    #cal-nav button {
+      background: none;
+      border: none;
+      color: rgba(255,255,255,0.50);
+      font-size: 1.1rem;
+      cursor: pointer;
+      padding: 0.3rem 0.7rem;
+      border-radius: 6px;
+      transition: background 0.2s;
+    }
+    #cal-nav button:hover { background: rgba(255,255,255,0.08); color: #fff; }
+    #cal-titolo-mese {
+      font-size: 0.82rem;
+      color: rgba(255,255,255,0.65);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    #cal-intestazione {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 3px;
+      margin-bottom: 4px;
+    }
+    #cal-intestazione span {
+      text-align: center;
+      font-size: 0.65rem;
+      color: rgba(255,255,255,0.25);
+      letter-spacing: 0.05em;
+    }
+    #cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 3px;
+    }
+    .cal-cell {
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.78rem;
+      border-radius: 6px;
+      color: rgba(255,255,255,0.22);
+    }
+    .cal-cell.ha-sessione {
+      background: rgba(180,160,255,0.12);
+      border: 1px solid rgba(180,160,255,0.25);
+      color: rgba(200,185,255,0.85);
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .cal-cell.ha-sessione:hover { background: rgba(180,160,255,0.22); }
+    .cal-cell.oggi { box-shadow: 0 0 0 1px rgba(255,255,255,0.35); color: rgba(255,255,255,0.65); }
+    .cal-cell.selezionato { background: rgba(180,160,255,0.28) !important; color: #fff !important; }
+    #cal-dettaglio {
+      margin-top: 1rem;
+      font-size: 0.80rem;
+      color: rgba(255,255,255,0.50);
+      line-height: 1.6;
+      min-height: 2rem;
+    }
+    .cal-sessione-item {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 0.7rem 0.9rem;
+      margin-bottom: 0.5rem;
+      color: rgba(255,255,255,0.60);
+    }
+    .cal-sessione-item strong { color: rgba(255,255,255,0.80); display: block; margin-bottom: 0.3rem; }
+    .cal-sessione-item .cal-racconto {
+      margin-bottom: 0.5rem;
+      font-style: italic;
+      color: rgba(255,255,255,0.45);
+    }
+    .cal-sessione-item .grafico-wrap { margin-top: 0.75rem; }
+    .cal-sessione-item .grafico-wrap h4 {
+      font-size: 0.68rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.40);
+      margin-bottom: 0.35rem;
+    }
+    .cal-sessione-item canvas { max-height: 90px; }
+    .cal-sessione-item .cal-sintesi {
+      margin-top: 0.75rem;
+      padding-top: 0.65rem;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.55);
+    }
+    .cal-sessione-item .cal-sintesi strong {
+      display: block;
+      font-size: 0.68rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.40);
+      margin-bottom: 0.35rem;
+    }
+
+    /* Indicatore di stato (debug, quasi invisibile) */
+    #profilo-overlay {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      z-index: 510;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    #profilo-overlay.visibile { display: flex; }
+    #profilo-box {
+      width: 380px;
+      background: rgba(10,14,28,0.96);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 16px;
+      padding: 2rem 2rem 1.5rem;
+      color: #fff;
+    }
+    #profilo-box h1 {
+      font-size: 1.4rem;
+      font-weight: 300;
+      letter-spacing: 0.20em;
+      text-align: center;
+      margin-bottom: 0.3rem;
+    }
+    #profilo-box .sottotitolo {
+      color: rgba(255,255,255,0.35);
+      font-size: 0.75rem;
+      text-align: center;
+      margin-bottom: 1.6rem;
+      letter-spacing: 0.05em;
+    }
+    .profilo-riga {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .profilo-riga .campo-auth { margin-bottom: 0.75rem; }
+    #sesso-gruppo {
+      display: flex;
+      gap: 0.4rem;
+      margin-bottom: 0.75rem;
+    }
+    .sesso-btn {
+      flex: 1;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      color: rgba(255,255,255,0.55);
+      padding: 0.55rem 0.3rem;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+    }
+    .sesso-btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
+    .sesso-btn.selezionato {
+      background: rgba(255,255,255,0.18);
+      border-color: rgba(255,255,255,0.45);
+      color: #fff;
+    }
+    #profilo-obiettivo {
+      width: 100%;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      color: #fff;
+      padding: 0.65rem 0.9rem;
+      font-size: 0.9rem;
+      font-family: inherit;
+      resize: none;
+      outline: none;
+      margin-bottom: 0.75rem;
+      transition: border-color 0.2s;
+    }
+    #profilo-obiettivo::placeholder { color: rgba(255,255,255,0.30); }
+    #profilo-obiettivo:focus { border-color: rgba(255,255,255,0.40); }
+    #btn-profilo-salva {
+      width: 100%;
+      background: rgba(255,255,255,0.14);
+      border: 1px solid rgba(255,255,255,0.30);
+      border-radius: 8px;
+      color: #fff;
+      padding: 0.7rem;
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s;
+      margin-bottom: 0.5rem;
+    }
+    #btn-profilo-salva:hover { background: rgba(255,255,255,0.22); }
+    #profilo-errore {
+      color: rgba(255,100,100,0.85);
+      font-size: 0.78rem;
+      min-height: 1rem;
+      text-align: center;
+    }
+
+    /* Logo fisso in alto al centro */
+    #logo-header {
+      position: fixed;
+      top: 1rem;
+      left: 50%;
+      transform: translateX(-50%);
+      height: 5rem;
+      width: auto;
+      z-index: 520;
+      pointer-events: none;
+      opacity: 0.88;
+    }
+
+    /* Indicatore di stato (debug, nascosto) */
+    #stato {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+  <canvas id="canvas"></canvas>
+  <video  id="video" playsinline muted></video>
+
+  <img id="logo-header" src="/assets/logo%20white.png" alt="IN-Motion">
+
+  <!-- Overlay di login (nascosto dopo autenticazione) -->
+  <div id="login-overlay">
+    <div id="login-box">
+      <img class="logo-login" src="/assets/logo%20white.png" alt="IN-Motion">
+      <p class="sottotitolo">esperienza di meditazione guidata</p>
+
+      <!-- Tab Accedi / Registrati -->
+      <div id="login-tabs">
+        <button class="login-tab attivo" data-tab="accedi">Accedi</button>
+        <button class="login-tab" data-tab="registrati">Registrati</button>
+      </div>
+
+      <!-- Form email / password -->
+      <input  class="campo-auth" id="auth-email"    type="email"    placeholder="Email" autocomplete="email">
+      <input  class="campo-auth" id="auth-password" type="password" placeholder="Password" autocomplete="current-password">
+      <input  class="campo-auth" id="auth-conferma" type="password" placeholder="Conferma password"
+              autocomplete="new-password" style="display:none">
+
+      <button id="btn-submit-auth">Accedi</button>
+      <span   id="link-reset">Password dimenticata?</span>
+
+      <div class="separatore">oppure</div>
+
+      <button id="btn-google">
+        <svg width="18" height="18" viewBox="0 0 48 48">
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
+        Continua con Google
+      </button>
+
+      <div id="login-errore"></div>
+      <div id="login-ok"></div>
+    </div>
+  </div>
+
+  <!-- Form profilo (appare solo al primo accesso) -->
+  <div id="profilo-overlay">
+    <div id="profilo-box">
+      <h1>IN-MOTION</h1>
+      <p class="sottotitolo">un momento per conoscerti</p>
+
+      <div class="profilo-riga">
+        <input class="campo-auth" id="profilo-nome"    type="text"   placeholder="Nome"    autocomplete="given-name">
+        <input class="campo-auth" id="profilo-cognome" type="text"   placeholder="Cognome" autocomplete="family-name">
+      </div>
+
+      <input class="campo-auth" id="profilo-eta" type="number" placeholder="Età" min="10" max="120" autocomplete="age">
+
+      <div id="sesso-gruppo">
+        <button class="sesso-btn" data-val="Uomo">Uomo</button>
+        <button class="sesso-btn" data-val="Donna">Donna</button>
+        <button class="sesso-btn" data-val="Non definito">Non definito</button>
+      </div>
+
+      <textarea id="profilo-obiettivo" rows="3"
+        placeholder="Cosa vorresti migliorare attraverso la meditazione? (es. ridurre ansia, dormire meglio, gestire lo stress…)"></textarea>
+
+      <button id="btn-profilo-salva">Inizia il percorso →</button>
+      <div id="profilo-errore"></div>
+    </div>
+  </div>
+
+  <!-- Controlli in alto a sinistra -->
+  <nav id="controls-left" aria-label="Controlli">
+    <div class="ctrl-item" id="ctrl-item-profilo">
+      <button type="button" class="btn-symbol" id="btn-profilo-toggle" title="Profilo" aria-expanded="false">
+        <img id="utente-avatar" class="ctrl-symbol ctrl-symbol--avatar" src="" alt="" style="display:none">
+        <img id="utente-avatar-fallback" class="ctrl-symbol" src="/assets/simbols/user.png" alt="">
+      </button>
+      <div class="ctrl-flyout" id="utente-flyout">
+        <span id="utente-nome"></span>
+        <button type="button" id="btn-logout">esci</button>
+      </div>
+    </div>
+    <div class="ctrl-item">
+      <button type="button" class="btn-symbol" id="btn-calendario-top" title="Storico meditazioni">
+        <img class="ctrl-symbol" src="/assets/simbols/calendar.png" alt="">
+      </button>
+    </div>
+    <div class="ctrl-item" id="ctrl-item-volume">
+      <button type="button" class="btn-symbol" id="btn-muto" title="Volume musica" aria-expanded="false">
+        <img class="ctrl-symbol" id="icon-volume" src="/assets/simbols/volume.png" alt="">
+      </button>
+      <div class="ctrl-flyout" id="volume-flyout">
+        <input type="range" id="volume-slider" min="0" max="100" value="100"
+          title="Volume musica" aria-label="Volume musica">
+      </div>
+    </div>
+    <div class="ctrl-item">
+      <button type="button" class="btn-symbol" id="btn-info" title="Istruzioni">
+        <img class="ctrl-symbol" src="/assets/simbols/info.png" alt="">
+      </button>
+    </div>
+  </nav>
+
+  <!-- Modal istruzioni -->
+  <div id="modal-info">
+    <div id="modal-box">
+      <h2>COME FUNZIONA</h2>
+      <ol>
+        <li>Clicca <strong>Inizia</strong> per avviare l’esperienza.</li>
+        <li>Segui le indicazioni sullo schermo fino all’invito a <strong>chiudere gli occhi</strong> e parlare liberamente.</li>
+        <li>Mentre parli, le tue parole compaiono in basso; quando <strong>riapri gli occhi</strong> l’ascolto termina.</li>
+        <li>L’intelligenza artificiale elabora il tuo racconto e prepara parole, musica e visuali su misura per te.</li>
+        <li>Quando compare la scritta finale, parla liberamente: le parole appaiono in basso. Clicca <strong>Fine</strong> per concludere e vedere i grafici.</li>
+      </ol>
+      <h2 style="margin-top:1.25rem; font-size:0.85rem; font-weight:600; color:rgba(255,255,255,0.7); letter-spacing:0.04em;">CONTROLLI</h2>
+      <ul style="padding-left:1.2rem; margin-top:0.5rem;">
+        <li><strong>👤 Profilo</strong> — nome e uscita dall’account</li>
+        <li><strong>📅 Calendario</strong> — storico delle tue meditazioni</li>
+        <li><strong>🔊 Volume</strong> — regola la musica (doppio clic per muto)</li>
+        <li><strong>?</strong> — queste istruzioni</li>
+      </ul>
+      <p style="margin-top:1rem; color:rgba(255,255,255,0.45); font-size:0.78rem;">
+        Per un’esperienza ottimale usa cuffie e uno spazio tranquillo.<br>
+        La webcam serve solo a leggere le espressioni del volto durante la sessione: nessun video viene registrato né salvato.
+      </p>
+      <button id="modal-chiudi">Chiudi</button>
+    </div>
+  </div>
+
+  <div id="ui" class="nascosto">
+    <div id="ui-step1">
+      <button id="inizia" class="btn-pill" type="button">Inizia</button>
+    </div>
+  </div>
+
+  <!-- Testo sessione (racconto visibile durante la meditazione) -->
+  <div id="testo-sessione"><span id="testo-sessione-testo"></span></div>
+
+  <div id="ui-riflessione" class="nascosto">
+    <button type="button" id="btn-fine-riflessione" class="btn-pill">Fine</button>
+  </div>
+
+  <!-- Pannello risultati (grafici) -->
+  <div id="panel-risultati" class="pannello-modale">
+    <div class="pannello-box">
+      <h2>IL TUO PERCORSO EMOTIVO</h2>
+      <div class="grafico-wrap">
+        <h3>Come ti sei sentito/a</h3>
+        <div class="grafico-canvas-wrap">
+          <canvas id="grafico-valence"></canvas>
+        </div>
+        <p class="grafico-spiegazione" id="spiega-valence"></p>
+      </div>
+      <div class="grafico-wrap">
+        <h3>Quanto eri attivo/a o in tensione</h3>
+        <div class="grafico-canvas-wrap">
+          <canvas id="grafico-arousal"></canvas>
+        </div>
+        <p class="grafico-spiegazione" id="spiega-arousal"></p>
+      </div>
+      <div class="risultati-analisi" id="risultati-analisi" style="display:none">
+        <strong>IN SINTESI</strong>
+        <span id="risultati-testo"></span>
+      </div>
+      <div class="btn-riga">
+        <button class="btn-pannello secondario" id="btn-calendario-apri">📅 Storico</button>
+        <button class="btn-pannello" id="btn-chiudi-risultati">Continua →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Calendario meditazioni -->
+  <div id="modal-calendario" class="pannello-modale">
+    <div class="pannello-box">
+      <h2>LE TUE MEDITAZIONI</h2>
+      <div id="cal-nav">
+        <button id="cal-prec">←</button>
+        <span id="cal-titolo-mese"></span>
+        <button id="cal-succ">→</button>
+      </div>
+      <div id="cal-intestazione">
+        <span>Lun</span><span>Mar</span><span>Mer</span>
+        <span>Gio</span><span>Ven</span><span>Sab</span><span>Dom</span>
+      </div>
+      <div id="cal-grid"></div>
+      <div id="cal-dettaglio"></div>
+      <button class="btn-pannello secondario" id="btn-chiudi-calendario" style="margin-top:1.2rem">Chiudi</button>
+    </div>
+  </div>
+
+  <div id="stato">avvio…</div>
+
+  <!-- Chart.js (UMD, disponibile come globale `Chart`) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <!-- Import map: Three.js, Firebase e addons via CDN senza build step -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three":             "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js",
+      "three/addons/":     "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/",
+      "firebase/app":      "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js",
+      "firebase/auth":     "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js",
+      "firebase/firestore":"https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js"
+    }
+  }
+  </script>
+
+  <script type="module" src="app.js"></script>
+
+</body>
+</html>

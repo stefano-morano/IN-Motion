@@ -89,11 +89,13 @@ COMMIATO = random.choice(COMMIATO_VARIANTI)
 ATTESA = ["I'M PREPARING YOUR MEDITATION", "FOCUS ON YOUR BREATH"]
 ATTESA_MANDALA = ["I'M DRAWING YOUR MANDALA"]
 INVITO_DISSOLUZIONE = ["MOVE YOUR FACE TO RELEASE THE MANDALA"]
+# Solo sul web (con sincronia): dopo il mandala si chiede come ci si sente.
+INVITO_RIFLESSIONE = "TELL ME WHAT YOU FEEL AFTER THE MEDITATION"
 
 # Tutte quelle che non dipendono dal racconto: TD puo' disegnarle in anticipo,
 # una volta sola, prima che l'esperienza cominci.
 SCRITTE_FISSE = (SALUTO + INVITO + ATTESA + ATTESA_MANDALA
-                 + INVITO_DISSOLUZIONE + COMMIATO + CHIUSURA)
+                 + INVITO_DISSOLUZIONE + [INVITO_RIFLESSIONE] + COMMIATO + CHIUSURA)
 
 # Alla voce si fa preparare qualcosa in piu': anche le frasi di RISERVA, quelle
 # che entrano quando Claude non risponde. Non stanno in SCRITTE_FISSE perche'
@@ -226,10 +228,11 @@ PERMANENZA_COMMIATO = LEGGIBILE
 
 class Esperienza:
     def __init__(self, scena: modulo_scena.Scena, racconto: str, ascolto=None,
-                 musica=None, tappeto=None, voce=None):
+                 musica=None, tappeto=None, voce=None, sincronia=None):
         self.scena = scena
         self.racconto = racconto      # ripiego se il microfono non c'e' o non sente
         self.ascolto = ascolto
+        self.sincronia = sincronia    # web: sincronizza riflessione e risultati col browser
         self.occhi = modulo_occhi.Rilevatore()
         self.movimento = modulo_movimento.Movimento()
         self._generazione_avviata = False
@@ -531,6 +534,47 @@ class Esperienza:
             self.movimento.aggiorna(punti, ora)
             if self.movimento.abbastanza() or trascorso >= MAX_DISSOLUZIONE:
                 print(f"  disperso (energia del gesto: {self.movimento.energia:.1f})")
+                if self.sincronia is not None:
+                    self._vai("riflessione_ascolto", ora)
+                    self._mostra_blocco([INVITO_RIFLESSIONE], 0, ora,
+                                        transizione=TRANSIZIONE)
+                    self.voce.zittisci()
+                    self._voce_da_dire = None
+                    ui_apri = getattr(self.scena, "ui_riflessione_apri", None)
+                    if ui_apri:
+                        ui_apri()
+                    if self.ascolto:
+                        self.ascolto.apri()
+                        self.ascolto.inizia()
+                else:
+                    self._vai("commiato", ora)
+                    self._mostra_blocco(COMMIATO, 0, ora,
+                                        transizione=TRANSIZIONE_LUNGA,
+                                        permanenza=PERMANENZA_COMMIATO)
+
+        elif self.stato == "riflessione_ascolto":
+            # Sul web: Fine (o timeout) imposta riflessione_inviata.
+            finito = (
+                self.sincronia
+                and self.sincronia.riflessione_inviata.is_set()
+            ) or trascorso >= MAX_ATTESA_GESTO
+            if finito:
+                if self.ascolto:
+                    self.ascolto.ferma()
+                self._vai("riflessione", ora)
+
+        elif self.stato == "riflessione":
+            if self.sincronia and self.sincronia.riflessione_inviata.is_set():
+                self.sincronia.riflessione_inviata.clear()
+                self._vai("risultati", ora)
+                self.scena.mostra("volto", transizione=1.0)
+
+        elif self.stato == "risultati":
+            if self.sincronia and self.sincronia.risultati_visti.is_set():
+                self.sincronia.risultati_visti.clear()
+                ui_nascondi = getattr(self.scena, "ui_nascondi", None)
+                if ui_nascondi:
+                    ui_nascondi()
                 self._vai("commiato", ora)
                 self._mostra_blocco(COMMIATO, 0, ora,
                                     transizione=TRANSIZIONE_LUNGA,

@@ -162,6 +162,66 @@ def controlla_chiave():
     )
 
 
+def controlla_voce():
+    """La voce che legge le scritte. Tutto qui dentro e' facoltativo: senza,
+    l'esperienza gira muta esattamente come gira con le frasi di riserva.
+
+    Non controlla "la chiave di ElevenLabs": chiede al modulo quale fornitore
+    ha scelto e se e' in piedi. Cosi' vale anche per Polly, e per il prossimo
+    che si aggiungera'."""
+    try:
+        import voce as modulo_voce
+        import prepara_voce
+    except Exception as errore:
+        esito(False, "Voce", str(errore)[:80],
+              rimedio="pip3 install -r requirements.txt", grave=False)
+        return
+
+    try:
+        importlib.import_module("soundfile")
+    except Exception:
+        esito(False, "Voce: qualita' audio", "manca soundfile",
+              rimedio=("Senza soundfile la voce si scarica a 16 kHz invece che a\n"
+                       "44.1 (ElevenLabs) o 24 (Polly), e si sente.\n"
+                       "pip3 install soundfile"),
+              grave=False)
+
+    guida = modulo_voce.Voce()
+    fornitore = guida.fornitore
+    quale = fornitore.nome_motore
+
+    if not fornitore.attivo:
+        esito(
+            False, f"Voce ({quale})", fornitore.motivo,
+            rimedio=("Senza, l'esperienza FUNZIONA LO STESSO: le scritte restano mute.\n"
+                     "Per darle voce ci sono due strade, e si scelgono con VOCE_MOTORE:\n"
+                     "  elevenlabs  piu' calda; le voci italiane pero' stanno nella\n"
+                     "              libreria pubblica, che il piano gratuito non usa\n"
+                     "  polly       voci italiane di serie e quota molto piu' larga,\n"
+                     "              ma audio a 24 kHz\n"
+                     "Poi:  python3 voci.py  per scegliere chi legge.\n"
+                     "Le chiavi vanno in ~/.zshrc, MAI in un file del progetto."),
+            grave=False,
+        )
+        return
+
+    dettaglio = getattr(fornitore, "motore", None) or modulo_voce.MODELLO
+    esito(True, f"Voce ({quale})", f"legge {fornitore.voce_nome} — {dettaglio}")
+
+    scritte = prepara_voce.tutte_le_scritte()
+    mancanti = [t for t in scritte if not guida.pronta(t)]
+    esito(
+        not mancanti, "Voce: scritte fisse gia' sintetizzate",
+        "tutte in cache" if not mancanti
+        else f"ne mancano {len(mancanti)} su {len(scritte)}",
+        rimedio=("python3 prepara_voce.py\n"
+                 "Falle ORA, non poco prima di una prova: sintetizzarle durante la\n"
+                 "sessione costerebbe crediti ad ogni giro e lascerebbe mute le\n"
+                 "scritte che non fanno in tempo."),
+        grave=False,
+    )
+
+
 def controlla_touchdesigner():
     try:
         elenco = subprocess.run(
@@ -200,6 +260,7 @@ def main():
     controlla_microfono()
     controlla_modello_whisper()
     controlla_chiave()
+    controlla_voce()
     controlla_touchdesigner()
     controlla_taratura()
 

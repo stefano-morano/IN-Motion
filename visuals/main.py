@@ -3,7 +3,7 @@ IN-Motion — punto di avvio unico.
 
 Un solo comando avvia tutto, Ctrl+C ferma tutto in modo pulito.
 
-    python3 main.py "sono stressato per la tesi e non dormo da giorni"
+    python3 main.py "i am stressed about my thesis and i haven't slept in days"
 
 Prima serve:
   - TouchDesigner aperto con visual_TD.toe (basta che sia aperto: la finestra
@@ -69,7 +69,7 @@ FINESTRA_A_SCHERMO_INTERO = True
 # durante una sessione vera darebbe fastidio a TouchDesigner.
 ANTEPRIMA_WEBCAM = False
 
-RACCONTO_PREDEFINITO = "oggi mi sento agitato e non riesco a fermare i pensieri"
+RACCONTO_PREDEFINITO = "today i feel restless and i can't stop my thoughts"
 
 
 def pompa(volto, secondi):
@@ -134,6 +134,14 @@ def main():
             ascoltatore = None
 
         esperienza = Esperienza(scena, racconto, ascoltatore)
+
+        # La voce si mette a sintetizzare adesso, in sottofondo. Con la cache
+        # gia' piena (python3 prepara_voce.py) finisce all'istante perche' non
+        # c'e' niente da fare; a cache fredda continua dietro al nero, e le
+        # scritte che non fanno in tempo restano semplicemente mute. E' la
+        # stessa scelta delle frasi di riserva: quello che manca non ferma
+        # niente.
+        esperienza.prepara_voce()
 
         # ---- dietro al nero si monta la scena ----
         # Azzerare da Python non basta a scongelare TouchDesigner: TD ricalcola

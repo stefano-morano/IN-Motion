@@ -2,7 +2,12 @@
 
 Un'esperienza di meditazione guidata. L'utente racconta a voce cosa lo affligge,
 Claude ne ricava delle frasi su cui meditare, e tutto — volto, parole, mandala
-finale — viene disegnato dalle stesse 13.664 particelle.
+finale — viene disegnato dalle stesse 13.664 particelle. Una voce le legge ad
+alta voce mentre si formano.
+
+**L'opera e' in inglese**: le scritte, la voce che le legge e il racconto di
+chi partecipa. Questa documentazione resta in italiano — e' per chi ci lavora,
+non per chi la guarda.
 
 **Non si tocca mai la tastiera**: l'esperienza si comanda chiudendo e riaprendo
 gli occhi.
@@ -88,6 +93,9 @@ dettaglio ogni 40 secondi.
 | `esperienza.py` | **decide cosa succede e quando** |
 | `musica.py` | il motore audio: tracce, volumi, dissolvenze |
 | `campanella.py` | sintetizza le due campane (nessun file audio) |
+| `voce.py` | la guida che legge le scritte (ElevenLabs) |
+| `voci.py` | attrezzo: sceglie CHI legge, facendola parlare |
+| `prepara_voce.py` | attrezzo: sintetizza in anticipo le scritte fisse |
 | `stacco.py` | musica giu' → campana → musica su, ad ogni cambio |
 | `mandala.py` | disegna il mandala ad alta risoluzione, da portare via |
 | `taratura.py` | attrezzo: misura la soglia degli occhi sul tuo viso |
@@ -149,6 +157,48 @@ vicenda — lo stacco riporterebbe su una musica che la scena voleva muta.
 **Funziona anche quando qualcosa si rompe.** Senza chiave API, senza rete,
 senza microfono, l'esperienza va avanti con frasi di riserva scritte a mano.
 
+**La voce dice le stesse parole che le particelle disegnano.** Non e' un
+narratore che commenta: e' la stessa frase detta due volte, con due mezzi. Per
+questo entra quando la scritta si e' FORMATA, non quando comincia a formarsi —
+durante la transizione le particelle si stanno ancora disponendo e non c'e'
+niente da leggere; sentirsi dire una frase che non si vede ancora la
+trasformerebbe in un annuncio. E per questo la scritta non se ne va finche' la
+voce non ha finito: la permanenza a schermo non e' piu' un tempo fisso, e'
+`max(tempo di lettura, durata della voce + un respiro)`.
+
+**Le clip esistono prima dell'esperienza.** Nessuna sintesi avviene mentre
+l'opera gira: le scritte fisse si preparano una volta con `prepara_voce.py` e
+restano su disco (`voce_cache/`), le tre frasi personali si sintetizzano nello
+stesso thread che le ha appena generate, mentre a schermo scorre "preparo la
+tua meditazione". Tre ragioni, in ordine di peso: una chiamata di rete in
+mezzo all'esperienza sarebbe un buco di due secondi; il piano gratuito da'
+circa 10.000 caratteri al mese e risintetizzare ogni volta le stesse scritte
+lo brucerebbe in una giornata di prove; in mostra la rete e' quella che e'. A
+cache piena l'unica cosa che dipende da internet sono le frasi personali, che
+hanno gia' il loro ripiego.
+
+**Mentre la voce parla la musica si fa da parte.** Non e' lo stacco — quello
+annuncia un passaggio di stato, questo fa spazio a delle parole — e non deve
+litigarci: usa un moltiplicatore suo (`attenua_per_voce`). Cosi' i due
+possono capitare insieme, che succede ogni volta che si riaprono gli occhi
+mentre una frase e' ancora in bocca, e ognuno rilascia la musica quando ha
+finito lui.
+
+**Il fornitore e' sostituibile, il resto no.** Tutto il dialogo con
+ElevenLabs o con Polly sta dentro una classe che espone sei cose: se e'
+attiva, perche' no, chi legge, la sua firma, l'elenco delle voci, e come si
+sintetizza una frase. Sopra quella riga non c'e' un solo `if` sul fornitore —
+cache, tempi, code, attenuazione della musica non sanno da dove arrivi
+l'audio. E' quello che ha permesso di aggiungere Polly senza toccare la
+macchina a stati, ed e' anche il motivo per cui le clip dei due convivono: la
+firma entra nell'impronta del file, quindi cambiare motore non cancella
+niente e tornare indietro non ripaga niente.
+
+**Senza voce l'opera resta intera.** Niente chiave, niente rete, niente
+libreria, cache fredda: le scritte restano mute e i tempi tornano esattamente
+quelli di prima, perche' `voce.durata()` vale zero e la permanenza ricade
+sulle costanti. E' la stessa scelta delle frasi di riserva.
+
 **La privacy e' una scelta di progetto.** Il volto diventa coordinate e l'audio
 viene trascritto in locale: a TouchDesigner non arriva mai il video, e l'audio
 non lascia il computer. Esce solo il testo, e solo verso Claude.
@@ -180,6 +230,8 @@ Poi:
 
 ```bash
 python3 taratura.py     # misura la soglia degli occhi sul TUO viso
+python3 voci.py         # scegli CHI legge: te le fa sentire una per una
+python3 prepara_voce.py # sintetizza le scritte fisse, una volta per tutte
 ```
 
 ### I cinque intoppi tipici
@@ -203,16 +255,175 @@ python3 taratura.py     # misura la soglia degli occhi sul TUO viso
    misurato su un viso e una luce precisi: su un'altra persona puo' sbagliare.
    `taratura.py` la rimisura in trenta secondi.
 
-### La chiave API
+### Le chiavi API
 
-**Non serve a tutti.** Senza chiave il sistema funziona lo stesso, con frasi di
-riserva scritte a mano: chi lavora sui visual, sull'audio o sui tempi non ha
-nulla da configurare. Serve solo a chi vuole provare la generazione sul
-racconto vero.
+Sono due, `ANTHROPIC_API_KEY` per le frasi e `ELEVENLABS_API_KEY` per la voce,
+e **nessuna delle due serve a tutti.** Senza la prima il sistema usa frasi di
+riserva scritte a mano; senza la seconda le scritte restano mute. Chi lavora
+sui visual, sull'audio o sui tempi non ha nulla da configurare.
 
-Se una chiave viene condivisa nel gruppo: si manda **a voce o in un messaggio
-privato**, si mette nell'ambiente (`export ANTHROPIC_API_KEY="..."` in
-`~/.zshrc`), e **mai in un file del progetto** — finirebbe su git al primo
-push. Conviene anche impostare un tetto di spesa nella console di Anthropic:
-una chiave condivisa non si puo' attribuire a nessuno, e revocarla la toglie a
+Valgono per entrambe le stesse due regole. Una chiave si manda **a voce o in
+un messaggio privato**, si mette nell'ambiente (`export ANTHROPIC_API_KEY="..."`
+in `~/.zshrc`), e **mai in un file del progetto** — finirebbe su git al primo
+push. E conviene impostare un tetto di spesa nella console: una chiave
+condivisa non si puo' attribuire a nessuno, e revocarla la toglie a tutti
+insieme.
+
+### La voce
+
+**Con l'opera in inglese, ElevenLabs gratis basta e avanza.** E non e' un
+dettaglio di budget: e' il motivo per cui la lingua e' stata scelta cosi'. Le
+voci di serie di ElevenLabs sono NATIVE inglesi — Sarah, Lily, Jessica, Alice
+— e sono le migliori che abbia. In italiano invece le native esistono solo
+nella libreria pubblica, che il piano gratuito non puo' usare via API (`402`):
+gratis, in italiano, si parlava con l'accento americano. L'inglese ha tolto di
+mezzo l'accento, l'abbonamento e la dipendenza da un fornitore a pagamento
 tutti insieme.
+
+**Resta comunque un secondo motore**, Amazon Polly, e si sceglie con
+`VOCE_MOTORE` (`elevenlabs` o `polly`); lasciando la variabile vuota vince il
+primo configurato. Serve a due cose: non dipendere da un solo fornitore, e
+avere una via d'uscita se un giorno il pezzo tornasse in italiano, dove Polly
+ha le voci native di serie.
+
+| | ElevenLabs | Amazon Polly |
+|---|---|---|
+| voci native inglesi | **di serie** (Sarah, Lily, Jessica...) | di serie (Danielle, Ruth...) |
+| voci native italiane | solo libreria, a pagamento | **di serie** (Beatrice, Bianca) |
+| gratis al mese | 10.000 caratteri | 1.000.000 (neural), 5.000.000 (standard) |
+| qualita' | piu' calda, piu' respirata | piu' piatta |
+| frequenza | 44.1 kHz | 24 kHz |
+| configurazione | una chiave | account AWS, utente IAM, due chiavi |
+
+Il consumo di questo pezzo e' ~800 caratteri una volta piu' ~110 a sessione:
+su ElevenLabs sono ottanta sessioni al mese, su Polly diecimila.
+
+La cache tiene conto di chi parla, quindi **i due convivono**: si provano tutti
+e due sulle frasi vere e si torna indietro senza ripagare nulla.
+
+**La lingua sta in quattro posti**, e sono tutti dichiarati: le scritte in
+`esperienza.py`, il prompt in `testi.py`, `LINGUA` in `ascolto.py` (cosa
+ascolta Whisper) e `LINGUA` in `voce.py` (quali voci preferire, e se
+rimettere gli accenti italiani). Cambiarla non tocca nient'altro.
+
+#### ElevenLabs
+
+Serve un account su [elevenlabs.io](https://elevenlabs.io). Il piano gratuito
+basta per lavorare: da' circa **10.000 crediti al mese, e un credito e' un
+carattere**. Il conto e' questo: tutte le scritte fisse, varianti comprese,
+sono 731 caratteri — si pagano **una volta sola**; ogni sessione poi ne costa
+circa 110, che sono le tre frasi personali. Fanno una ottantina di sessioni al
+mese. Se invece si risintetizzasse tutto ad ogni giro sarebbero meno di dieci,
+ed e' esattamente il motivo per cui la cache esiste. (Il piano gratuito non da'
+l'uso commerciale e chiede di citare ElevenLabs: per una tesi o
+un'installazione non commerciale va bene, per qualunque altra cosa serve il
+piano da 5$.)
+
+Poi, dal terminale:
+
+```bash
+export ELEVENLABS_API_KEY="..."   # meglio in fondo a ~/.zshrc
+pip3 install elevenlabs soundfile
+python3 voci.py                  # elenca le voci e le fa parlare
+```
+
+Le voci di serie sono gia' quelle giuste per l'opera in inglese: non serve
+la libreria pubblica, e quindi non serve nessun abbonamento.
+
+**Attenzione a come crei la chiave.** ElevenLabs propone di default una chiave
+*ristretta*, con tutti i permessi spenti: e' valida, ma risponde **401 esattamente
+come una chiave sbagliata**, e si finisce per rigenerarne tre o quattro — tutte
+ugualmente ristrette. Servono almeno **Text to Speech** e **Voices: read**
+(piu' **Voices: write** per `voci.py aggiungi`). Si accendono su elevenlabs.io →
+API Keys → Edit, senza doverla rifare. Se il messaggio dice *"alla chiave mancano
+dei permessi"*, e' questo.
+
+`voci.py` non elenca e basta: fa dire a ogni candidata femminile e giovane le
+**frasi vere dell'opera**, non un testo di prova. Una voce puo' essere
+bellissima su "buongiorno, questa e' una prova" e sbagliata sopra "chiudi gli
+occhi": e' il materiale a giudicarla. Quando ne hai una:
+
+```bash
+python3 voci.py scegli Alice     # la scrive in voce_scelta.json
+python3 prepara_voce.py          # sintetizza tutte le scritte fisse
+```
+
+Le voci di serie parlano italiano con l'accento della lingua in cui sono nate.
+Per una voce italiana vera c'e' la libreria pubblica:
+
+```bash
+python3 voci.py cerca            # femminili, giovani, in italiano
+python3 voci.py aggiungi <id>    # la copia nel tuo account
+```
+
+**Ma serve un piano a pagamento.** Sul piano gratuito una voce della libreria
+si aggiunge all'account e compare negli elenchi, e sembra tutto a posto: e' la
+SINTESI a rifiutarla, con un `402`. Il piano Starter (5$) la sblocca, insieme
+all'uso commerciale. Restando gratuiti si sceglie fra le voci di serie, che
+l'italiano lo dicono con l'accento della lingua in cui sono nate — su una
+meditazione, dove a occhi chiusi la voce e' l'unico canale rimasto, si sente.
+
+Cambiando voce le clip in cache non valgono piu' (l'impronta del file tiene
+conto di chi parla, del modello e della velocita'): si rilancia
+`prepara_voce.py` e le vecchie restano li' senza dare fastidio.
+
+#### Amazon Polly
+
+Le voci italiane qui sono di serie: **Beatrice** (motore `generative`, il piu'
+naturale) e **Bianca** (anche `neural` e `standard`). Nessuna libreria a
+pagamento di mezzo.
+
+Serve un account AWS, un utente IAM con la policy `AmazonPollyReadOnlyAccess`,
+e la sua coppia di chiavi. Poi:
+
+```bash
+pip3 install boto3
+export AWS_ACCESS_KEY_ID="..."          # in ~/.zshrc, come le altre
+export AWS_SECRET_ACCESS_KEY="..."
+export VOCE_MOTORE=polly
+python3 voci.py                         # le voci italiane della region
+python3 prepara_voce.py
+```
+
+La region conta: **le voci `generative` non esistono ovunque.** Se quella
+configurata non le ha, il codice scende da solo a `neural` e lo dice, invece
+di fallire in faccia al primo avvio. Si forza con `VOCE_POLLY_REGIONE`.
+
+Un dettaglio che si paga in silenzio se non lo si sa: **il motore `generative`
+non accetta SSML**, quindi con Beatrice la velocita' di lettura non si puo'
+rallentare — il suo passo naturale e' gia' posato, ma e' quello e basta. Con
+`neural` e `standard` il rallentamento c'e' (`POLLY_VELOCITA`).
+
+#### Le manopole
+
+Come suona, in cima a `voce.py`:
+
+| | cosa fa |
+|---|---|
+| `VELOCITA` | 0.88. Sotto 1 rallenta la dizione. ElevenLabs accetta 0.7–1.2 |
+| `STABILITA` | 0.65. Alta = lettura posata; in meditazione l'espressivita' e' un difetto |
+| `SOMIGLIANZA` | 0.80. Quanto resta aderente al timbro originale della voce |
+| `STILE` | 0.0. Enfasi interpretativa: qui non ne serve |
+| `VOLUME` | 0.95. La voce sta davanti, e' lei che guida |
+| `POLLY_VELOCITA` | "90%". Vale solo su `neural` e `standard`: `generative` non accetta SSML |
+
+Come respira, in `esperienza.py`:
+
+| | cosa fa |
+|---|---|
+| `CODA_VOCE` | 1.2 s di silenzio dopo l'ultima parola, prima di cambiare scritta |
+| `LEGGIBILE` | 2.0 s, il minimo a schermo. Vince il piu' lungo fra questo e la voce |
+
+**La velocita' non si sceglie leggendo un numero.** 0.85 non vuol dire niente
+finche' non lo senti accanto a 0.95, e provarlo cambiando la costante
+costerebbe una passata intera di sintesi a ogni tentativo — la velocita' entra
+nell'impronta della cache, quindi cambiarla rifa' tutte le clip. Per questo c'e':
+
+```bash
+python3 voci.py velocita              # 0.75, 0.85, 0.95, 1.0 in fila
+python3 voci.py velocita 0.8 0.9      # o i valori che vuoi
+```
+
+Una frase sola, letta a piu' velocita', una cinquantina di crediti invece di
+ottocento. Quella che convince si scrive in `VELOCITA` e poi si rilancia
+`prepara_voce.py`.

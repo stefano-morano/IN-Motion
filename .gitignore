@@ -17,3 +17,15 @@ visuals/visual_TD.[0-9][0-9].toe
 
 # i backup automatici di TouchDesigner: utili sul disco, inutili su git
 visuals/Backup/
+
+# i campioni di prova delle voci: si rifanno con  python3 voci.py
+visuals/voce_campioni/
+
+# l'audio della voce: file derivati, si rigenerano con  python3 prepara_voce.py
+# Si potranno committare quando la voce sara' definitiva: chi clona avrebbe
+# l'opera parlante senza chiave API. Finche' la voce puo' ancora cambiare,
+# sarebbero megabyte da buttare al prossimo giro.
+visuals/voce_cache/
+
+# quale voce legge: e' una scelta di chi allestisce, e ognuno ha il suo account
+visuals/voce_scelta.json

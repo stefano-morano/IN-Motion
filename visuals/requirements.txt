@@ -6,3 +6,6 @@ faster-whisper
 sounddevice
 numpy
 pillow
+elevenlabs
+soundfile
+boto3

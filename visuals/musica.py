@@ -219,6 +219,7 @@ class Music:
         self._loop = True
         self._volume = _Rampa(0.0)         # quanto forte va in questa scena
         self._attenuazione = _Rampa(1.0)   # quanto la stiamo abbassando ora
+        self._voce = _Rampa(1.0)           # quanto la abbassiamo per la voce
         # un suono breve sovrapposto alla musica (la campanella degli occhi):
         # niente flusso in piu', si somma dentro questo
         self._campione = None
@@ -233,7 +234,9 @@ class Music:
             # le due rampe avanzano SEMPRE, anche quando non c'e' niente da
             # suonare: se si fermassero, una dissolvenza chiesta su una
             # sorgente muta resterebbe congelata a meta' per sempre
-            g = self._volume.blocco(frames) * self._attenuazione.blocco(frames)
+            g = (self._volume.blocco(frames)
+                 * self._attenuazione.blocco(frames)
+                 * self._voce.blocco(frames))
 
             if self._data is None:
                 outdata.fill(0)
@@ -387,6 +390,18 @@ class Music:
         scena successiva potrebbe volerne uno diverso."""
         with self._lock:
             self._attenuazione.vai_a(max(0.0, min(1.0, float(livello))), fade)
+
+    def attenua_per_voce(self, livello, fade=0.5):
+        """Quanto abbassare la musica mentre la guida parla.
+
+        TERZO moltiplicatore, e non e' uno di troppo: la voce e lo stacco
+        abbassano la musica per ragioni diverse e possono capitare insieme —
+        si riapre gli occhi mentre una frase e' ancora in bocca. Con un solo
+        numero il primo dei due a finire riporterebbe su la musica sopra
+        l'altro che ne ha ancora bisogno. Tenendoli separati si moltiplicano,
+        e ognuno la rilascia quando ha finito lui."""
+        with self._lock:
+            self._voce.vai_a(max(0.0, min(1.0, float(livello))), fade)
 
     def fade_out(self, seconds=5.0):
         """Sfuma fino al silenzio, ma NON chiude il flusso.

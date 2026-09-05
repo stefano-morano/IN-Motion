@@ -44,6 +44,7 @@ import occhi as modulo_occhi
 import scena as modulo_scena
 import stacco as modulo_stacco
 import testi
+import voce as modulo_voce
 
 # ---------- scritte sempre uguali ----------
 # Per il saluto, l'invito, la chiusura e il commiato ci sono piu' varianti: se
@@ -54,25 +55,30 @@ import testi
 # righe; devono pero' restare entro i 42 caratteri per riga (vedi MAX_CARATTERI
 # in testi.py) e coprire lo stesso contenuto funzionale delle altre — INVITO,
 # in particolare, deve sempre dire di chiudere gli occhi E raccontare.
+# LA LINGUA DELL'OPERA E' L'INGLESE: le scritte, la voce che le legge e il
+# racconto di chi partecipa. Non e' una traduzione della versione italiana —
+# e' la lingua in cui il pezzo si mostra. Cambiarla vuol dire toccare tre
+# posti: queste scritte, il prompt in testi.py, e LINGUA in ascolto.py e in
+# voce.py.
 SALUTO_VARIANTI = [
-    ["BENVENUTO E GRAZIE PER ESSERE QUI"],
-    ["SEI ARRIVATO, E QUESTO BASTA"],
-    ["GRAZIE DI ESSERE QUI, ORA"],
+    ["WELCOME, AND THANK YOU FOR BEING HERE"],
+    ["YOU MADE IT HERE, AND THAT'S ENOUGH"],
+    ["THANK YOU FOR BEING HERE, NOW"],
 ]
 INVITO_VARIANTI = [
-    ["QUANDO TI SENTI PRONTO", "CHIUDI GLI OCCHI E RACCONTAMI CIO CHE VUOI"],
-    ["PRENDITI IL TUO TEMPO", "CHIUDI GLI OCCHI, DIMMI COSA PORTI OGGI"],
-    ["NESSUNA FRETTA", "CHIUDI GLI OCCHI E RACCONTAMI COME STAI"],
+    ["WHEN YOU FEEL READY", "CLOSE YOUR EYES AND TELL ME ANYTHING"],
+    ["TAKE ALL THE TIME YOU NEED", "CLOSE YOUR EYES, TELL ME WHAT YOU CARRY"],
+    ["NO HURRY", "CLOSE YOUR EYES AND TELL ME HOW YOU ARE"],
 ]
 CHIUSURA_VARIANTI = [
-    ["È IL MOMENTO DI MEDITARE", "CHIUDI GLI OCCHI QUANDO TI SENTI PRONTO"],
-    ["ORA TOCCA A TE, IN SILENZIO", "CHIUDI GLI OCCHI QUANDO SEI PRONTO"],
-    ["IL RESPIRO SA GIÀ COSA FARE", "CHIUDI GLI OCCHI E LASCIALO GUIDARE"],
+    ["IT'S TIME TO MEDITATE", "CLOSE YOUR EYES WHEN YOU FEEL READY"],
+    ["NOW IT'S YOUR TURN, IN SILENCE", "CLOSE YOUR EYES WHEN YOU'RE READY"],
+    ["YOUR BREATH ALREADY KNOWS", "CLOSE YOUR EYES AND LET IT LEAD"],
 ]
 COMMIATO_VARIANTI = [
-    ["NIENTE DI BELLO VA TRATTENUTO", "GRAZIE, A PRESTO"],
-    ["QUELLO CHE SERVIVA È SUCCESSO", "GRAZIE DI CUORE, A PRESTO"],
-    ["PORTA CON TE SOLO CIO CHE SERVE", "A PRESTO"],
+    ["NOTHING BEAUTIFUL IS MEANT TO BE KEPT", "THANK YOU, SEE YOU SOON"],
+    ["WHAT NEEDED TO HAPPEN HAS HAPPENED", "THANK YOU, TRULY"],
+    ["TAKE ONLY WHAT YOU NEED WITH YOU", "SEE YOU SOON"],
 ]
 
 SALUTO = random.choice(SALUTO_VARIANTI)
@@ -80,20 +86,35 @@ INVITO = random.choice(INVITO_VARIANTI)
 CHIUSURA = random.choice(CHIUSURA_VARIANTI)
 COMMIATO = random.choice(COMMIATO_VARIANTI)
 
-ATTESA = ["PREPARO LA TUA MEDITAZIONE", "CONCENTRATI SUL TUO RESPIRO"]
-ATTESA_MANDALA = ["STO DISEGNANDO IL TUO MANDALA"]
-INVITO_DISSOLUZIONE = ["MUOVI IL VOLTO E LIBERATI DEL MANDALA"]
+ATTESA = ["I'M PREPARING YOUR MEDITATION", "FOCUS ON YOUR BREATH"]
+ATTESA_MANDALA = ["I'M DRAWING YOUR MANDALA"]
+INVITO_DISSOLUZIONE = ["MOVE YOUR FACE TO RELEASE THE MANDALA"]
 
 # Tutte quelle che non dipendono dal racconto: TD puo' disegnarle in anticipo,
 # una volta sola, prima che l'esperienza cominci.
 SCRITTE_FISSE = (SALUTO + INVITO + ATTESA + ATTESA_MANDALA
                  + INVITO_DISSOLUZIONE + COMMIATO + CHIUSURA)
 
+# Alla voce si fa preparare qualcosa in piu': anche le frasi di RISERVA, quelle
+# che entrano quando Claude non risponde. Non stanno in SCRITTE_FISSE perche'
+# TD non deve disegnarle in anticipo — nella stragrande maggioranza delle
+# sessioni non serviranno — ma sintetizzarle costa una volta sola sessanta
+# caratteri, e senza di loro il ripiego sarebbe MUTO: proprio quando qualcosa
+# si e' rotto, la guida smetterebbe di parlare. Un ripiego che funziona a
+# meta' non e' un ripiego.
+SCRITTE_DA_DIRE = SCRITTE_FISSE + [
+    testi.RISERVA[campo] for campo in testi.CAMPI_TESTO]
+
 # ---------- tempi (secondi) ----------
 # REGOLA: nessuna scritta resta a schermo meno di LEGGIBILE, e questo tempo si
 # conta DA QUANDO E' FORMATA, non da quando parte la transizione — durante la
 # transizione le particelle si stanno ancora disponendo e non c'e' niente da
 # leggere. Quindi ogni schermata dura: transizione + LEGGIBILE.
+# E DA QUANDO C'E' LA VOCE, quel minimo puo' non bastare: se la guida ci mette
+# di piu' a dire la frase, la scritta resta finche' non ha finito. La durata
+# vera di ogni schermata non e' quindi piu' una costante — si calcola in
+# _mostra_blocco() e vive in self._durata_blocco. L'unica eccezione e'
+# l'ultimo blocco dell'invito, che resta a schermo finche' non chiude gli occhi.
 # MODALITA' PROVA: durante lo sviluppo aspettare sei secondi a scritta e' una
 # tortura. Rimettere a 6.0 (o piu') prima di mostrarlo a qualcuno: una frase
 # che si legge di corsa non da' il tempo di sentirla.
@@ -106,10 +127,6 @@ TRANSIZIONE_BREVE = 1.5     # per i cambi rapidi (blocchi d'attesa) (prova; era 
 # nuvola di polvere che si raccoglie nelle prime parole, e vale la pena
 # guardarla. Le altre transizioni collegano due scritte, questa apre l'opera.
 TRANSIZIONE_APERTURA = 5.0
-DURATA_SALUTO = TRANSIZIONE_APERTURA + LEGGIBILE
-DURATA_INVITO = TRANSIZIONE + LEGGIBILE   # tranne l'ultimo blocco: quello
-                                          # resta finche' non chiude gli occhi
-DURATA_ATTESA = TRANSIZIONE_BREVE + LEGGIBILE
 
 MIN_ASCOLTO = 3.0           # sotto questa durata l'ascolto non puo' finire
 MAX_ATTESA_GESTO = 90.0     # se il gesto non arriva mai, si prosegue lo stesso
@@ -163,12 +180,27 @@ VOLUME_MEDITAZIONE = 0.00    # il TAPPETO tace durante la meditazione, per
 # passaggio. Un filo di musica sotto la tiene dentro il pezzo.
 VOLUME_SOTTO_CAMPANA = 0.30
 
+# ---------- la voce che legge ----------
+# Una guida legge ad alta voce le stesse parole che le particelle disegnano.
+# Voce e scritta sono la STESSA cosa detta due volte, non due contenuti: la
+# voce entra quando la scritta si e' formata, non mentre si sta formando —
+# durante la transizione non c'e' ancora niente da leggere, e sentir dire una
+# frase che non si vede ancora la trasformerebbe in un annuncio.
+CODA_VOCE = 1.5         # respiro dopo l'ultima parola, prima di cambiare
+                        # scritta. Senza, la frase successiva parte addosso
+                        # alla precedente e la meditazione diventa un elenco.
+                        # Cresciuto da 1.2 quando la voce e' scesa a 0.75: se
+                        # le parole rallentano ma le pause restano, il rapporto
+                        # fra suono e silenzio si stringe — e il silenzio, qui,
+                        # e' meta' del lavoro.
+ATTENUAZIONE_VOCE = 0.35    # quanto scende la musica mentre la voce parla
+MAX_ATTESA_VOCE = 15.0      # oltre, si va avanti muti invece che aspettare
+
 # ---------- fase 2: meditazione ----------
 MIN_MEDITAZIONE = 3.0       # una riapertura fulminea non puo' bastare a finirla
 MAX_MEDITAZIONE = 600.0     # rete di sicurezza per una presentazione (10 minuti)
 
 # ---------- fase 3: il mandala ----------
-DURATA_ATTESA_MANDALA = DURATA_ATTESA   # per ogni blocco, poi si ripete
 TRANSIZIONE_MANDALA = 6.0    # il mandala si compone piu' lentamente del resto:
                              # e' il regalo finale, non deve sbrigarsi
 SECONDI_PER_LIVELLO = 40.0   # ogni tot secondi di meditazione, un livello di dettaglio in piu'
@@ -177,7 +209,6 @@ BONUS_MASSIMO = 3            # tetto ai livelli: oltre, il disegno si affolla
 PERMANENZA_MANDALA = 12.0    # quanto lo si contempla prima di lasciarlo andare (prova; era 40.0)
 
 # ---------- la dissoluzione ----------
-DURATA_INVITO_DISSOLUZIONE = TRANSIZIONE + LEGGIBILE
 MAX_DISSOLUZIONE = 60.0      # se non scuote mai, si prosegue lo stesso
 # Lo stacco certifica un passaggio di stato, quindi deve avvenire solo dove
 # gli occhi vengono davvero ascoltati. Negli altri otto stati chiudere o
@@ -195,7 +226,7 @@ PERMANENZA_COMMIATO = LEGGIBILE
 
 class Esperienza:
     def __init__(self, scena: modulo_scena.Scena, racconto: str, ascolto=None,
-                 musica=None, tappeto=None):
+                 musica=None, tappeto=None, voce=None):
         self.scena = scena
         self.racconto = racconto      # ripiego se il microfono non c'e' o non sente
         self.ascolto = ascolto
@@ -215,7 +246,14 @@ class Esperienza:
 
         self._indice_blocco = 0
         self._t_blocco = 0.0
+        self._durata_blocco = 0.0   # quanto dura la schermata in corso:
+                                    # non e' una costante perche' dipende da
+                                    # quanto ci mette la voce a dirla
         self._durata_meditazione = 0.0
+        self._voce_da_dire = None   # frase gia' a schermo che sta per essere
+                                    # detta, e il momento in cui dirla
+        self._t_voce = 0.0
+        self._voce_generata = threading.Event()
 
         self.copione = []
         self.indice = 0
@@ -238,6 +276,12 @@ class Esperienza:
             attenuazione=VOLUME_SOTTO_CAMPANA / VOLUME_PIENO,
         )
 
+        # la voce abbassa le stesse due sorgenti, ma con un moltiplicatore
+        # tutto suo: cosi' puo' capitare insieme a uno stacco senza che i due
+        # si riportino su la musica a vicenda
+        self.voce = voce if voce is not None else modulo_voce.Voce(
+            (self.tappeto, self.musica), attenuazione=ATTENUAZIONE_VOCE)
+
     # ---------- avvio ----------
 
     def prepara_scritte(self):
@@ -248,6 +292,16 @@ class Esperienza:
         chiedere una scritta non ancora pronta fa ripiegare sul volto."""
         self.scena.prepara(SCRITTE_FISSE)
         self._scritte_pronte = True
+
+    def prepara_voce(self):
+        """Fa sintetizzare le scritte fisse, in sottofondo.
+
+        Da chiamare a sipario chiuso, il prima possibile. Con la cache gia'
+        piena — cioe' sempre, dopo il primo giro o dopo prepara_voce.py —
+        finisce in un istante perche' non c'e' niente da fare. A cache fredda
+        ci mette qualche decina di secondi, e le scritte che non fanno in
+        tempo restano semplicemente mute: nessuna si fa aspettare."""
+        return self.voce.prepara_in_sottofondo(SCRITTE_DA_DIRE)
 
     def prepara_tappeto(self):
         """Carica il tappeto senza farlo partire.
@@ -298,6 +352,8 @@ class Esperienza:
         # suonare: aprirlo piu' tardi, mentre il tappeto suona, farebbe
         # riconfigurare la scheda audio e si sentirebbe un click
         self.musica.apri()
+        # stessa ragione per la voce: il suo flusso si apre adesso, muto
+        self.voce.apri()
         # e anche il microfono: aprirlo piu' tardi, quando la persona chiude
         # gli occhi, faceva click mentre il tappeto suonava
         if self.ascolto:
@@ -323,10 +379,17 @@ class Esperienza:
         # fotogramma alla volta, come la macchina a stati grande
         self.stacco.aggiorna(ora)
 
+        # la voce entra quando la scritta ha finito di comporsi: qui si
+        # guarda solo se e' arrivato il momento, mai si aspetta
+        if self._voce_da_dire is not None and ora >= self._t_voce:
+            self.voce.di(self._voce_da_dire)
+            self._voce_da_dire = None
+        self.voce.aggiorna(ora)
+
         trascorso = ora - self.t_stato
 
         if self.stato == "saluto":
-            if ora - self._t_blocco >= DURATA_SALUTO:
+            if ora - self._t_blocco >= self._durata_blocco:
                 if self._indice_blocco + 1 < len(SALUTO):
                     self._mostra_blocco(SALUTO, self._indice_blocco + 1, ora)
                 else:
@@ -335,13 +398,19 @@ class Esperienza:
 
         elif self.stato == "invito":
             ultimo_blocco = self._indice_blocco >= len(INVITO) - 1
-            if not ultimo_blocco and (ora - self._t_blocco) >= DURATA_INVITO:
+            if not ultimo_blocco and (ora - self._t_blocco) >= self._durata_blocco:
                 self._mostra_blocco(INVITO, self._indice_blocco + 1, ora)
 
             # si passa oltre quando chiude gli occhi (o dopo molto tempo,
             # per non lasciare il sistema bloccato durante una presentazione)
             if stato_occhi == "chiusi" or trascorso >= MAX_ATTESA_GESTO:
                 self._vai("ascolto", ora)
+                # la guida tace PRIMA che il microfono si accenda: quello che
+                # suona in stanza finisce nella registrazione, e una frase
+                # ancora in bocca verrebbe trascritta come se l'avesse detta
+                # la persona
+                self.voce.zittisci()
+                self._voce_da_dire = None
                 self.scena.mostra("volto", transizione=TRANSIZIONE)
                 # il tappeto si abbassa PRIMA di accendere il microfono: cio'
                 # che suona in stanza finisce nella registrazione insieme alla
@@ -366,7 +435,7 @@ class Esperienza:
             # Quando arriva NON se ne apre un altro: si lascia finire quello
             # in corso. Senza questa condizione una scritta poteva comparire
             # e sparire nello stesso istante, appena Claude rispondeva.
-            attesa_finita = (ora - self._t_blocco) >= DURATA_ATTESA
+            attesa_finita = (ora - self._t_blocco) >= self._durata_blocco
             if self._materiale is None and len(ATTESA) > 1 and attesa_finita:
                 prossimo = (self._indice_blocco + 1) % len(ATTESA)
                 self._mostra_blocco(ATTESA, prossimo, ora, TRANSIZIONE_BREVE)
@@ -387,6 +456,13 @@ class Esperienza:
                 self._t_pronto = ora
             pronto = self._t_pronto is not None
             td_pronto = pronto and (ora - self._t_pronto) >= modulo_scena.TEMPO_DI_PREPARAZIONE
+            # anche la voce dev'essere pronta: entrare nella danza mentre le
+            # frasi si stanno ancora sintetizzando vorrebbe dire mostrarne una
+            # muta e dire la successiva. Ma non si aspetta all'infinito: se la
+            # rete e' lenta o assente si prosegue in silenzio.
+            voce_pronta = self._voce_generata.is_set() or (
+                pronto and (ora - self._t_pronto) >= MAX_ATTESA_VOCE)
+            td_pronto = td_pronto and voce_pronta
             # si esce solo quando la scritta in corso e' stata letta per intero
             if pronto and td_pronto and attesa_finita:
                 self._costruisci_copione()
@@ -423,12 +499,12 @@ class Esperienza:
                 self.tappeto.volume(VOLUME_FINALE, fade=6.0)
 
         elif self.stato == "preparazione_mandala":
-            if len(ATTESA_MANDALA) > 1 and (ora - self._t_blocco) >= DURATA_ATTESA_MANDALA:
+            if len(ATTESA_MANDALA) > 1 and (ora - self._t_blocco) >= self._durata_blocco:
                 prossimo = (self._indice_blocco + 1) % len(ATTESA_MANDALA)
                 self._mostra_blocco(ATTESA_MANDALA, prossimo, ora, TRANSIZIONE_BREVE)
             # il mandala e' puro calcolo, pronto quasi subito: qui non si
             # aspetta perche' serva, ma perche' la scritta va letta
-            if trascorso >= DURATA_ATTESA_MANDALA:
+            if trascorso >= self._durata_blocco:
                 self._vai("mandala", ora)
                 self.scena.mostra("mandala", transizione=TRANSIZIONE_MANDALA)
 
@@ -440,7 +516,7 @@ class Esperienza:
                 self._mostra_blocco(INVITO_DISSOLUZIONE, 0, ora)
 
         elif self.stato == "invito_dissoluzione":
-            if trascorso >= DURATA_INVITO_DISSOLUZIONE:
+            if trascorso >= self._durata_blocco:
                 # Il mandala torna ED E' GIA' DISFACIBILE: la dissoluzione
                 # parte insieme alla sua ricomparsa, non dopo. Le particelle
                 # si ricompongono mentre il naso puo' gia' spingerle via —
@@ -456,13 +532,15 @@ class Esperienza:
             if self.movimento.abbastanza() or trascorso >= MAX_DISSOLUZIONE:
                 print(f"  disperso (energia del gesto: {self.movimento.energia:.1f})")
                 self._vai("commiato", ora)
-                self._mostra_blocco(COMMIATO, 0, ora, transizione=TRANSIZIONE_LUNGA)
+                self._mostra_blocco(COMMIATO, 0, ora,
+                                    transizione=TRANSIZIONE_LUNGA,
+                                    permanenza=PERMANENZA_COMMIATO)
 
         elif self.stato == "commiato":
-            durata = (TRANSIZIONE_LUNGA if self._indice_blocco == 0 else TRANSIZIONE)
-            if ora - self._t_blocco >= durata + PERMANENZA_COMMIATO:
+            if ora - self._t_blocco >= self._durata_blocco:
                 if self._indice_blocco + 1 < len(COMMIATO):
-                    self._mostra_blocco(COMMIATO, self._indice_blocco + 1, ora)
+                    self._mostra_blocco(COMMIATO, self._indice_blocco + 1, ora,
+                                        permanenza=PERMANENZA_COMMIATO)
                 else:
                     self.stato = "fine"
                     self.finita = True
@@ -476,6 +554,10 @@ class Esperienza:
         interrotta a meta': un flusso audio aperto sopravvive al programma."""
         # uno stacco lasciato a meta' terrebbe la musica attenuata a zero
         self.stacco.annulla()
+        try:
+            self.voce.stop()
+        except Exception:
+            pass
         for sorgente in (self.tappeto, self.musica):
             try:
                 sorgente.stop()
@@ -491,12 +573,38 @@ class Esperienza:
         self.stato = stato
         self.t_stato = ora
 
-    def _mostra_blocco(self, blocchi, indice, ora, transizione=TRANSIZIONE):
+    def _mostra_blocco(self, blocchi, indice, ora, transizione=TRANSIZIONE,
+                       permanenza=LEGGIBILE):
         """Mostra un blocco di testo di una sequenza (SALUTO/INVITO/ATTESA) e
-        ricorda quando e' iniziato, per sapere quando passare al successivo."""
+        ricorda quando e' iniziato, per sapere quando passare al successivo.
+
+        Qui si decide anche QUANTO dura la schermata, e non e' piu' una
+        costante: se la voce la legge, la scritta resta finche' la voce non ha
+        finito. Una scritta che sparisce a meta' di una frase detta rompe
+        l'illusione che voce e particelle siano la stessa cosa."""
+        testo = blocchi[indice]
         self._indice_blocco = indice
         self._t_blocco = ora
-        self.scena.mostra("testo", blocchi[indice], transizione=transizione)
+        self.scena.mostra("testo", testo, transizione=transizione)
+        self._durata_blocco = transizione + self._permanenza(testo, permanenza)
+        self._programma_voce(testo, ora + transizione)
+
+    def _permanenza(self, testo, base):
+        """Quanto la scritta resta a schermo DOPO essersi formata.
+
+        Almeno il tempo di leggerla; di piu' se la voce ci mette di piu' a
+        dirla. Se la clip non c'e' (niente chiave, niente rete, cache fredda)
+        durata() vale zero e si ricade esattamente sui tempi di prima."""
+        detta = self.voce.durata(testo)
+        return max(base, detta + CODA_VOCE) if detta else base
+
+    def _programma_voce(self, testo, quando):
+        """Segna che questa frase va detta a quell'ora. Ci pensa aggiorna().
+
+        Programmata invece che detta subito perche' deve entrare a scritta
+        formata: e' il momento in cui c'e' qualcosa da leggere."""
+        self._voce_da_dire = testo
+        self._t_voce = quando
 
     def _avvia_generazione(self, racconto):
         """La chiamata a Claude vive in un thread suo: cosi' i blocchi
@@ -504,7 +612,16 @@ class Esperienza:
         self._generazione_avviata = True
 
         def lavoro():
-            self._materiale = testi.genera(racconto)
+            materiale = testi.genera(racconto)
+            # prima si consegna il materiale — TD puo' gia' cominciare a
+            # disegnare le scritte — e solo dopo si sintetizza la voce, che e'
+            # la parte lenta. Le due attese si sovrappongono invece di sommarsi.
+            self._materiale = materiale
+            try:
+                self.voce.prepara([materiale["frase_1"], materiale["frase_2"],
+                                   materiale["concetto"]] + CHIUSURA)
+            finally:
+                self._voce_generata.set()
 
         print("esperienza: genero le frasi...")
         threading.Thread(target=lavoro, daemon=True).start()
@@ -526,18 +643,24 @@ class Esperienza:
             permanenza_concetto += RESPIRO_EXTRA_DISCESA
         self.copione = [
             ("volto", "", TRANSIZIONE, PERMANENZA_VOLTO),
-            ("testo", m["frase_1"], TRANSIZIONE, PERMANENZA_FRASE),
+            ("testo", m["frase_1"], TRANSIZIONE,
+             self._permanenza(m["frase_1"], PERMANENZA_FRASE)),
             ("volto", "", TRANSIZIONE, PERMANENZA_VOLTO),
-            ("testo", m["frase_2"], TRANSIZIONE, PERMANENZA_FRASE),
-            ("testo", m["concetto"], TRANSIZIONE, permanenza_concetto),
+            ("testo", m["frase_2"], TRANSIZIONE,
+             self._permanenza(m["frase_2"], PERMANENZA_FRASE)),
+            ("testo", m["concetto"], TRANSIZIONE,
+             self._permanenza(m["concetto"], permanenza_concetto)),
         ]
         for scritta in CHIUSURA:
-            self.copione.append(("testo", scritta, TRANSIZIONE, PERMANENZA_CHIUSURA))
+            self.copione.append(("testo", scritta, TRANSIZIONE,
+                                 self._permanenza(scritta, PERMANENZA_CHIUSURA)))
         self.indice = 0
 
     def _mostra_scena_corrente(self):
         tipo, contenuto, transizione, _ = self.copione[self.indice]
         self.scena.mostra(tipo, contenuto, transizione)
+        if tipo == "testo":
+            self._programma_voce(contenuto, self.t_stato + transizione)
 
     def _invia_mandala(self):
         """Combina il carattere scelto da Claude con quanto e' durata la

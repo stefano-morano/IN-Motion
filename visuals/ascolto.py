@@ -17,7 +17,7 @@ import sounddevice as sd
 from faster_whisper import WhisperModel
 
 FREQUENZA = 16000        # Whisper lavora a 16 kHz
-LINGUA = "it"
+LINGUA = "en"   # la lingua dell'opera: chi partecipa racconta in inglese
 
 # "small" e' un buon compromesso per l'italiano. "base" e' piu' veloce ma
 # sbaglia di piu' sui nomi e sulle frasi smozzicate; "medium" e' piu' preciso

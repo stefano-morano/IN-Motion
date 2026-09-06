@@ -29,3 +29,6 @@ visuals/voce_cache/
 
 # quale voce legge: e' una scelta di chi allestisce, e ognuno ha il suo account
 visuals/voce_scelta.json
+
+# lock file di Office
+~$*

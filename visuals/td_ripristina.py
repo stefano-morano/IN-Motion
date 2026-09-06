@@ -4,7 +4,9 @@ il motore delle particelle e la resa grafica. Poi salva.
 
 DA ESEGUIRE dentro TD (Textport, oppure un Text DAT con tasto destro > Run):
 
-    exec(open('/Users/aldopinelli/Desktop/UNI/cpac/IN-Motion/visuals/td_ripristina.py').read())
+    # encoding esplicito: senza, il Python dentro TD apre in ascii e si ferma
+    # sul primo trattino lungo o accento di questo file
+    exec(open('/percorso/di/visuals/td_ripristina.py', encoding='utf-8').read())
 
 Serve dopo aver riaperto visual_TD.toe, o ogni volta che si modificano
 td_face_points.py / td_controllo_osc.py / td_estetica.py fuori da TD.

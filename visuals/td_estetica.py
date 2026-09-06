@@ -1,11 +1,14 @@
 """
 Costruisce dentro TouchDesigner tutta la resa grafica: colore per particella,
 fusione additiva e la catena di post-produzione (bagliore, sfondo, vignetta,
-grana).
+grana). Lo sfondo e' in due pezzi — la forma dell'alone e la sua tinta, che
+segue il colore della sessione.
 
 DA ESEGUIRE UNA VOLTA, dentro TD, in una Textport o da un DAT:
 
-    exec(open('/percorso/di/visuals/td_estetica.py').read())
+    # encoding esplicito: senza, il Python dentro TD apre in ascii e si ferma
+    # sul primo trattino lungo o accento di questo file
+    exec(open('/percorso/di/visuals/td_estetica.py', encoding='utf-8').read())
 
 Perche' esiste come script invece che come nodi cliccati a mano:
   - il .toe e' binario, quindi queste scelte sarebbero invisibili a git;
@@ -32,6 +35,22 @@ def _nodo(padre, tipo, nome, x, y):
         n = padre.create(tipo, nome)
     n.nodeX, n.nodeY = x, y
     return n
+
+
+def _parametri_colore(n):
+    """I tre parametri r, g, b di un nodo, cercati invece che dati per buoni.
+
+    I nomi dei parametri di TouchDesigner cambiano da un tipo di nodo
+    all'altro, e sbagliarli qui vorrebbe dire un AttributeError in mezzo alla
+    costruzione, con la rete lasciata a meta'. Meglio guardare cosa c'e'
+    davvero e, se non c'e', dirlo in chiaro alla fine."""
+    for nomi in (('colorr', 'colorg', 'colorb'), ('color0', 'color1', 'color2'),
+                 ('cropr', 'cropg', 'cropb')):
+        if all(hasattr(n.par, x) for x in nomi):
+            return [getattr(n.par, x) for x in nomi]
+    raise AttributeError(
+        "%s: nessun parametro colore riconosciuto fra %s"
+        % (n.name, [x for x in dir(n.par) if 'color' in x.lower()]))
 
 
 def _risoluzione(n):
@@ -73,9 +92,12 @@ def costruisci():
 
     # ------------------------------------------------------------------
     # 3. CATENA DI POST-PRODUZIONE
-    #    render -> bagliore -> (+ sfondo) -> (x vignetta) -> (+ grana) -> finale
+    #    render -> bagliore -> (+ sfondo x sfondo_tinta)
+    #           -> (x vignetta) -> (+ grana) -> finale
     # ------------------------------------------------------------------
     sfondo = _nodo(p, rampTOP, 'sfondo', x0 + PASSO, y0 - 180)
+    sfondo_tinta = _nodo(p, constantTOP, 'sfondo_tinta', x0 + PASSO, y0 - 340)
+    sfondo_col = _nodo(p, compositeTOP, 'sfondo_col', x0 + PASSO * 2, y0 - 180)
     bagliore = _nodo(p, bloomTOP, 'bagliore', x0 + PASSO, y0)
     composito = _nodo(p, compositeTOP, 'composito', x0 + PASSO * 2, y0)
     vign_map = _nodo(p, rampTOP, 'vignetta_mappa', x0 + PASSO * 2, y0 - 180)
@@ -89,6 +111,12 @@ def costruisci():
     # limite del percettibile da' aria e stacca le particelle.
     # ATTENZIONE: in TD 'radial' e' un gradiente ANGOLARE (a spicchi, come un
     # radar); quello concentrico si chiama 'circular'.
+    #
+    # Il gradiente qui e' BIANCO: porta solo la forma dell'alone, il colore
+    # arriva dopo (sfondo_tinta). Erano una cosa sola finche' il fondo e' stato
+    # blu per sempre; da quando segue la tinta di chi medita vanno separati,
+    # perche' una tabella di chiavi non si puo' riscrivere ad ogni fotogramma
+    # ma un parametro con un'espressione si rivaluta da solo.
     sfondo.par.type = 'circular'
     sfondo.par.extendleft = 'hold'      # 'repeat' disegnerebbe un bordo netto
     sfondo.par.extendright = 'hold'
@@ -98,8 +126,22 @@ def costruisci():
     tab = p.op('sfondo_keys')
     tab.clear()
     tab.appendRow(['pos', 'r', 'g', 'b', 'a'])
-    tab.appendRow(['0', '0.030', '0.042', '0.085', '1'])
-    tab.appendRow(['1', '0.004', '0.006', '0.016', '1'])
+    tab.appendRow(['0', '1', '1', '1', '1'])
+    tab.appendRow(['1', '0.188', '0.188', '0.188', '1'])   # SFONDO_QUOTA_BORDO
+
+    # --- tinta dell'alone: un colore piatto, che pero' si muove. I tre canali
+    # sono tre parametri distinti, ognuno con la sua espressione, e ognuna
+    # nomina absTime.seconds NEL TESTO: e' l'unico modo perche' TD si accorga
+    # che il valore dipende dal tempo e lo rivaluti (vedi luminosita() in
+    # td_face_points.py, dove non farlo aveva fatto sparire la dissolvenza).
+    _risoluzione(sfondo_tinta)
+    canali = _parametri_colore(sfondo_tinta)
+    for i, par in enumerate(canali):
+        par.expr = ("op('face_points_callbacks').module"
+                    ".sfondo_colore(%d, absTime.seconds)" % i)
+    sfondo_col.inputConnectors[0].connect(sfondo)
+    sfondo_col.inputConnectors[1].connect(sfondo_tinta)
+    sfondo_col.par.operand = 'multiply'
 
     # --- bagliore: il pezzo che trasforma dei puntini in luce. Soglia alta e
     # intensita' contenuta: deve sembrare polvere illuminata, non un neon.
@@ -113,7 +155,7 @@ def costruisci():
     # --- composito: la luce si SOMMA allo sfondo. Le particelle sono luce,
     # non oggetti opachi che lo coprirebbero.
     composito.inputConnectors[0].connect(bagliore)
-    composito.inputConnectors[1].connect(sfondo)
+    composito.inputConnectors[1].connect(sfondo_col)
     composito.par.operand = 'add'
 
     # --- vignetta: bordi appena piu' scuri, lo sguardo va al centro
@@ -151,7 +193,8 @@ def costruisci():
     finale.viewer = True
     render.viewer = False
 
-    nodi = (sfondo, bagliore, composito, vign_map, vignetta, grana, grana_mix, finale)
+    nodi = (sfondo, sfondo_tinta, sfondo_col, bagliore, composito, vign_map,
+            vignetta, grana, grana_mix, finale)
     errori = {n.name: n.errors() for n in nodi if n.errors()}
     return "resa costruita. errori: %s" % (errori or 'nessuno')
 

@@ -65,10 +65,87 @@ PALETTE_CALMA = {
     'fondo':  (0.020, 0.045, 0.115),  # indaco profondo
     'luce':   (0.300, 0.460, 0.640),  # azzurro, non bianco
 }
+
+# Quanto sono accesi i colori. 1.0 e' la taratura originale, che alla prova
+# usciva slavata: in fusione additiva le particelle sovrapposte sommano la luce
+# e la spingono verso il bianco, quindi una saturazione che sul singolo colore
+# sembra giusta a schermo si perde. Si alza la SATURAZIONE e basta — tonalita'
+# e luminosita' restano quelle tarate, cosi' questa manopola cambia quanto il
+# colore e' acceso e non quale colore e'.
+#
+# Il tetto pratico e' 1.5: da li' in su rosso e ambra sbattono contro la
+# saturazione piena, le due tinte del gradiente ci arrivano insieme e il
+# mandala diventa una tinta unita invece di un passaggio.
+INTENSITA_COLORE = 1.35
+
+
+def _acceso(rgb):
+    """Lo stesso colore, con la saturazione alzata di INTENSITA_COLORE."""
+    h, s, v = colorsys.rgb_to_hsv(*rgb)
+    return colorsys.hsv_to_rgb(h, min(1.0, s * INTENSITA_COLORE), v)
+
+
+# ---------- l'alone di sfondo ----------
+# Il fondo non e' nero piatto ma un alone appena piu' chiaro al centro, ed era
+# l'ultimo pezzo di blu fisso rimasto: sotto un mandala ambra restava un fondo
+# blu. Segue anche lui la tinta personale, con la stessa miscela di tutto il
+# resto, cosi' il colore non e' addosso alle particelle ma nell'aria intorno.
+#
+# Dentro TD la FORMA dell'alone (il gradiente circolare) e il suo COLORE sono
+# separati: il gradiente e' bianco e ci si moltiplica sopra questa tinta. Si
+# puo' fare perche' centro e bordo del blu originale stavano gia' sulla stessa
+# tinta — 227 e 230 gradi — e il bordo e' esattamente 0.188 del centro sul
+# canale blu, che a quelle luminosita' e' il canale che decide. Su rosso e
+# verde la scomposizione sbaglia di 0.0016, cioe' meno di un passo a 8 bit:
+# non e' un'approssimazione che si possa vedere, e' una che non si puo'
+# nemmeno scrivere.
+SFONDO_CALMA = (0.030, 0.042, 0.085)   # il centro dell'alone, blu
+SFONDO_QUOTA_BORDO = 0.188             # quanto e' piu' scuro il bordo
+
+
+def sfondo_colore(canale, ora=None):
+    """Il colore dell'alone adesso, canale per canale (0=r, 1=g, 2=b).
+
+    Vive su un'espressione dei parametri del nodo 'sfondo_tinta' dentro TD, e
+    per lo stesso motivo di luminosita() L'ORA VA PASSATA DA FUORI: dentro
+    un'espressione TouchDesigner deve poter VEDERE la dipendenza dal tempo,
+    altrimenti valuta una volta sola e tiene il risultato in cache per sempre.
+
+    Un canale per chiamata perche' un parametro colore in TD e' tre parametri
+    separati, e ognuno vuole la sua espressione."""
+    blu = _acceso(SFONDO_CALMA)
+    if 'mandala_tonalita' not in _c:
+        return blu[canale]
+    # la tinta personale tiene saturazione e luminosita' dell'alone blu: deve
+    # restare l'alone appena percettibile di sempre, non diventare una macchia
+    _, sat, val = colorsys.rgb_to_hsv(*SFONDO_CALMA)
+    personale = colorsys.hsv_to_rgb((_c['mandala_tonalita'] % 360.0) / 360.0, sat, val)
+    return _miscela(blu, _acceso(personale), quanta_tinta(ora))[canale]
+
+
+def _blu():
+    """La palette delle prime fasi, accesa. Passa da qui e non da
+    PALETTE_CALMA chiunque debba DISEGNARE il blu: le tuple qui sopra restano
+    la taratura, questa e' la taratura come si vede."""
+    return _acceso(PALETTE_CALMA['fondo']), _acceso(PALETTE_CALMA['luce'])
+
 NEBBIA_LUMINOSITA = 0.35   # quanto sono piu' spente le particelle sospese
 SCINTILLIO = 0.16          # quanto ogni particella respira di luce propria
 SCINTILLIO_VELOCITA = 0.35
 PROFONDITA_COLORE = 0.30   # quanto la vicinanza all'osservatore schiarisce
+
+# Il blu qui sopra non e' IL colore dell'opera: e' il colore di PRIMA che
+# l'opera sappia chi ha davanti. La tinta che Claude ricava dal racconto non
+# aspetta il mandala per farsi vedere — comincia a prendere il posto del blu
+# appena esiste, poco nella danza e di piu' nella meditazione, finche' al
+# mandala il blu non c'e' piu'. Quanta ne sia entrata lo dice tinta_forza(),
+# che comanda Python fase per fase.
+#
+# Arrivare a gradi invece che tutto insieme non e' un vezzo: col colore
+# personale che compariva solo col mandala, il mandala era un cambio di scena.
+# Entrando piano e' la stessa cosa che sta accadendo all'ascolto — l'opera ti
+# conosce un po' di piu', e si vede.
+DURATA_TINTA = 12.0        # quanto ci mette la miscela a spostarsi
 
 # ---------- mandala ----------
 # Non serve disegnarlo e poi campionarlo come il testo: anelli concentrici
@@ -548,6 +625,52 @@ GRADIENTE = {
 EMOZIONE_PREDEFINITA = "Q2"
 
 
+def tinta(tonalita, emozione=EMOZIONE_PREDEFINITA):
+    """Registra la tinta personale, quella che Claude ricava dal racconto.
+
+    Arriva molto prima del mandala: appena il modello ha risposto. Da sola non
+    cambia nulla a schermo — quanta se ne veda lo decide tinta_forza() — ma da
+    qui in poi c'e' un colore da miscelare al blu, e le fasi successive possono
+    attingerci invece di aspettare la fine."""
+    _c['mandala_tonalita'] = float(tonalita)
+    _c['mandala_emozione'] = str(emozione)
+    return _c['mandala_tonalita']
+
+
+def tinta_forza(valore, durata=DURATA_TINTA):
+    """Quanta tinta personale si vede: 0 il blu di sempre, 1 solo lei.
+
+    Si sposta in 'durata' secondi invece che di scatto — un salto di colore su
+    una scritta ferma si legge come un errore di regia, non come una scelta.
+    E parte dal valore raggiunto ADESSO, non da quello chiesto l'ultima volta:
+    cosi' due comandi ravvicinati si concatenano invece di strapparsi."""
+    _c['tinta_da'] = quanta_tinta()
+    _c['tinta_a'] = min(1.0, max(0.0, float(valore)))
+    _c['tinta_t0'] = absTime.seconds
+    _c['tinta_durata'] = max(0.0, float(durata))
+    return _c['tinta_a']
+
+
+def quanta_tinta(ora=None):
+    """La miscela in corso. Se nessuno ha mai chiesto tinta risponde 0, cioe'
+    il blu: e' lo stato con cui ogni sessione comincia."""
+    if 'tinta_a' not in _c:
+        return 0.0
+    if ora is None:
+        ora = absTime.seconds
+    durata = _c.get('tinta_durata', 0.0)
+    da, a = _c.get('tinta_da', 0.0), _c['tinta_a']
+    if durata <= 0.0:
+        return a
+    k = min(1.0, max(0.0, (ora - _c['tinta_t0']) / durata))
+    # smoothstep: la miscela parte e arriva DA FERMA. La dissolvenza
+    # d'apertura usa invece una potenza, perche' li' si parte dal nero e c'e'
+    # un capo solo da addolcire; qui i capi sono due, e un cambio di tinta si
+    # nota proprio nell'istante in cui comincia e in quello in cui finisce.
+    k = k * k * (3.0 - 2.0 * k)
+    return da + (a - da) * k
+
+
 def prepara_mandala(petali, anelli, tonalita, seed, emozione=EMOZIONE_PREDEFINITA):
     """Genera e ricorda la forma del mandala. E' puro calcolo, ma resta
     comandata da fuori come prepara_testi() per lasciare a TD un fotogramma."""
@@ -607,6 +730,9 @@ def azzera():
         anche un TouchDesigner appena aperto
       - le scritte in memoria, comprese le frasi personali di chi ha appena
         finito: non servono piu' a nessuno e non e' roba da lasciare in giro
+      - la tinta personale, per lo stesso motivo: senza questo la sessione
+        nuova comincerebbe gia' colorata di chi c'era prima, e il blu non
+        sarebbe piu' il colore di prima-che-io-ti-conosca ma un residuo
 
     Le POSIZIONI delle particelle non si toccano apposta: lasciandole dove
     sono, scivolano verso il volto con la loro inerzia invece di saltarci di
@@ -616,6 +742,10 @@ def azzera():
     _c['naso_prec'] = None
     _c['t_diss'] = None
     _c['testi'] = {}
+    _c.pop('mandala_tonalita', None)
+    _c.pop('mandala_emozione', None)
+    _c.pop('tinta_a', None)
+    _c.pop('tinta_da', None)
     _c['dissolvenza'] = None      # luce piena: il buio si chiede apposta
     _c['scena_da'] = ('volto', '')
     _c['scena_a'] = ('volto', '')
@@ -665,36 +795,89 @@ def _forma(scena, P, n, ora, sorgente=False):
     return _forma_volto(P)
 
 
-def _palette(tipo):
-    """Le due tinte fra cui pesca ogni particella. Volto e testo restano sul
-    blu di sempre; il mandala prende la tonalita' scelta da Claude, declinata
-    in una versione profonda e una luminosa della stessa tinta."""
-    # la dissoluzione e' il mandala che si disfa: tiene il suo colore
-    if tipo not in ('mandala', 'dissoluzione') or 'mandala_tonalita' not in _c:
-        return PALETTE_CALMA['fondo'], PALETTE_CALMA['luce']
+def _tinta_personale():
+    """La tonalita' scelta da Claude, declinata in una versione profonda e una
+    luminosa della stessa tinta.
 
-    # I valori restano bassi come nella palette blu: sono la luce di UNA
-    # particella, e in fusione additiva dove si sovrappongono si somma. Una
-    # tinta luminosa vicina al bianco pieno satura e il colore scelto da
-    # Claude sparisce — che e' esattamente il contrario di quello che serve.
+    I valori restano bassi come nella palette blu: sono la luce di UNA
+    particella, e in fusione additiva dove si sovrappongono si somma. Una
+    tinta luminosa vicina al bianco pieno satura e il colore scelto da
+    Claude sparisce — che e' esattamente il contrario di quello che serve."""
     g = GRADIENTE.get(_c.get('mandala_emozione'), GRADIENTE[EMOZIONE_PREDEFINITA])
     h = (_c['mandala_tonalita'] % 360.0) / 360.0
     # le due tinte si aprono a cavallo dell'ancora, mezza apertura per parte:
     # due toni identici cambiati solo di luminosita' darebbero un risultato
     # piatto, ma spostarli entrambi dalla stessa parte perderebbe l'ancora
     mezza = (g["apertura"] / 2.0) / 360.0 * g["verso"]
-    fondo = colorsys.hsv_to_rgb((h - mezza) % 1.0, g["sat_fondo"], 0.090)
-    luce = colorsys.hsv_to_rgb((h + mezza) % 1.0, g["sat_luce"], 0.620)
+    sat_fondo = min(1.0, g["sat_fondo"] * INTENSITA_COLORE)
+    sat_luce = min(1.0, g["sat_luce"] * INTENSITA_COLORE)
+    fondo = colorsys.hsv_to_rgb((h - mezza) % 1.0, sat_fondo, 0.090)
+    luce = colorsys.hsv_to_rgb((h + mezza) % 1.0, sat_luce, 0.620)
     return fondo, luce
+
+
+def _palette(tipo, ora=None):
+    """Le due tinte fra cui pesca ogni particella.
+
+    Il mandala e la sua dissoluzione usano la tinta personale PIENA: sono il
+    momento in cui il colore di chi medita e' il soggetto, non l'ambiente.
+    Tutte le altre forme — volto, scritte, polvere — la miscelano al blu nella
+    misura decisa da tinta_forza(): a inizio sessione non c'e' ancora nulla da
+    miscelare e resta il blu di sempre, alla fine il blu e' gia' sparito e le
+    parole del commiato hanno il colore del mandala che le ha precedute.
+
+    Le due palette hanno di proposito luminosita' quasi uguali (0.090/0.620
+    contro 0.115/0.640 del blu): cosi' miscelandole cambia la tinta e non
+    l'esposizione, e la miscela non si tradisce come uno sbalzo di luce."""
+    if 'mandala_tonalita' not in _c:
+        return _blu()
+
+    fondo, luce = _tinta_personale()
+    # la dissoluzione e' il mandala che si disfa: tiene il suo colore
+    if tipo in ('mandala', 'dissoluzione'):
+        return fondo, luce
+
+    k = quanta_tinta(ora)
+    blu_fondo, blu_luce = _blu()
+    if k <= 0.0:
+        return blu_fondo, blu_luce
+    return _miscela(blu_fondo, fondo, k), _miscela(blu_luce, luce, k)
+
+
+def _miscela(blu, personale, k):
+    """Il passaggio dal blu alla tinta personale, k da 0 a 1.
+
+    NON e' una media fra i due colori, ed e' una lezione presa sbagliando: il
+    blu sta a 212 gradi e le tinte che Claude sceglie stanno spesso dall'altra
+    parte della ruota, quindi mediarli faceva passare il colore per la strada
+    piu' corta fra i due — e quella strada e' una TERZA tinta. Con un'ancora
+    ambra la meditazione restava per un minuto su un verde che non c'entrava
+    niente con quello che la persona aveva raccontato; con un'ancora rossa, su
+    un viola. Una fase intera del colore di nessuno.
+
+    Qui invece la tonalita' non si sposta mai: fino a meta' strada e' il blu
+    che si scarica, da meta' in poi e' la tinta personale che si carica, e nel
+    mezzo passano entrambe per il grigio. Cio' che si vede non e' un colore
+    intermedio ma il blu che lascia la presa e il colore di chi medita che
+    arriva — che poi e' esattamente quello che sta succedendo.
+
+    La LUMINOSITA' invece attraversa dritta: e' l'unica delle tre a non avere
+    una strada sbagliata, e tenerla ferma farebbe pulsare l'esposizione."""
+    h_b, s_b, v_b = colorsys.rgb_to_hsv(*blu)
+    h_p, s_p, v_p = colorsys.rgb_to_hsv(*personale)
+    v = v_b + (v_p - v_b) * k
+    if k < 0.5:
+        return colorsys.hsv_to_rgb(h_b, s_b * (1.0 - 2.0 * k), v)
+    return colorsys.hsv_to_rgb(h_p, s_p * (2.0 * k - 1.0), v)
 
 
 def _colori(tipo_da, tipo_a, avanzamento, pos, ora):
     """Il colore di ogni particella: un punto lungo il gradiente fra la tinta
     profonda e quella luminosa. Durante una transizione le due palette si
     mescolano, cosi' il colore cambia insieme alla forma invece di scattare."""
-    fondo_a, luce_a = _palette(tipo_a)
+    fondo_a, luce_a = _palette(tipo_a, ora)
     if tipo_da != tipo_a and avanzamento < 1.0:
-        fondo_d, luce_d = _palette(tipo_da)
+        fondo_d, luce_d = _palette(tipo_da, ora)
         k = avanzamento
         fondo = tuple(fondo_d[i] * (1 - k) + fondo_a[i] * k for i in range(3))
         luce = tuple(luce_d[i] * (1 - k) + luce_a[i] * k for i in range(3))

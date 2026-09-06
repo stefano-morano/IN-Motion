@@ -8,8 +8,6 @@
 
 """Riceve i comandi di regia da Python (porta 8001).
 
-Tre messaggi:
-
   /prepara  "frase 1"  "frase 2"  ...
       TD disegna le frasi e ne ricava le posizioni delle particelle.
       Va mandato una volta, prima di usarle.
@@ -18,6 +16,17 @@ Tre messaggi:
       TD genera le posizioni del mandala (calcolo puro, nessun disegno da
       campionare). Va mandato una volta, prima di mostrarlo. L'emozione
       ('Q1'..'Q4') decide quanto il colore si apre in gradiente.
+
+  /tinta  tonalita  emozione
+      La tinta personale ricavata dal racconto. Va mandata appena Claude ha
+      risposto — molto prima del mandala — perche' da li' in poi comincia a
+      entrare anche nelle scritte e nel volto. Da sola non cambia nulla: e'
+      /tinta_forza a decidere quanta se ne veda.
+
+  /tinta_forza  valore  durata
+      Quanta tinta personale si vede, da 0 (il blu di sempre) a 1 (solo lei),
+      raggiunta in 'durata' secondi. E' la regia del colore: Python la alza
+      fase per fase, cosi' il mandala non e' piu' l'unico momento colorato.
 
   /scena  tipo  testo  durata
       Fa partire la transizione. tipo = 'volto', 'testo' oppure 'mandala'.
@@ -58,6 +67,18 @@ def onReceiveOSC(dat, rowIndex, message, byteData, timeStamp, address, args, pee
         regia._c['da_preparare_mandala'] = numeri + [emozione]
         run("op('/project1/face_points_callbacks').module.prepara_mandala_in_coda()",
             delayFrames=1)
+
+    elif address == '/tinta':
+        # niente da cuocere e niente da disegnare: e' solo un valore messo da
+        # parte, quindi si puo' fare subito dentro la callback
+        tonalita = float(args[0]) if args else 200.0
+        emozione = str(args[1]) if len(args) > 1 else 'Q2'
+        regia.tinta(tonalita, emozione)
+
+    elif address == '/tinta_forza':
+        valore = float(args[0]) if args else 0.0
+        durata = float(args[1]) if len(args) > 1 else regia.DURATA_TINTA
+        regia.tinta_forza(valore, durata)
 
     elif address == '/scena':
         # se qualcuno comanda da fuori, TD smette di scorrere da solo

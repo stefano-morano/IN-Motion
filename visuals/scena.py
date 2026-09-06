@@ -1,9 +1,11 @@
 """
 La scena: manda a TouchDesigner i comandi su cosa mostrare.
 
-Quattro messaggi, sulla porta 8001:
+I messaggi, sulla porta 8001:
   /prepara  "frase" "frase" ...        -> TD disegna le scritte e ne ricava le posizioni
   /mandala  petali anelli tonalita seed emozione -> TD genera le posizioni del mandala
+  /tinta  tonalita emozione            -> la tinta personale, appena si conosce
+  /tinta_forza  valore durata          -> quanta se ne vede, da 0 (blu) a 1
   /scena    tipo testo durata          -> TD parte con la transizione
                                            (tipo = volto / testo / mandala /
                                             polvere / dissoluzione)
@@ -88,6 +90,28 @@ class Scena:
             [int(petali), int(anelli), float(tonalita), int(seed), str(emozione)],
         )
         print(f"scena: preparo il mandala ({petali} petali, {anelli} anelli, {emozione})")
+
+    def tinta(self, tonalita, emozione="Q2"):
+        """La tinta che Claude ha ricavato dal racconto.
+
+        Va mandata appena la generazione risponde, non insieme al mandala: e'
+        da quel momento che il colore personale puo' cominciare a entrare
+        nelle scritte e nel volto. Fino alla prima tinta_forza() non si vede
+        nulla — questo comando dice a TD che un colore ESISTE, non che vada
+        mostrato."""
+        self.client.send_message("/tinta", [float(tonalita), str(emozione)])
+        print(f"scena: tinta personale {tonalita:.0f}° ({emozione})")
+
+    def tinta_forza(self, valore, durata=12.0):
+        """Quanta tinta personale si vede: 0 il blu delle prime fasi, 1 solo
+        la sua. Ci arriva in 'durata' secondi.
+
+        Il blu dell'apertura e' il colore di prima che l'opera sappia chi ha
+        davanti; alzando questa misura fase per fase, il colore di chi medita
+        entra man mano che l'opera lo scopre invece di comparire tutto insieme
+        col mandala."""
+        self.client.send_message("/tinta_forza", [float(valore), float(durata)])
+        print(f"scena: colore personale al {valore * 100:.0f}% in {durata:.0f}s")
 
     def polvere(self, transizione=0.0):
         """Le particelle sparse a caso: la nuvola dell'apertura.

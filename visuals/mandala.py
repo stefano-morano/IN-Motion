@@ -49,9 +49,29 @@ NEBBIA_RAGGIO = 0.035
 ALONI = ((0.7, 1.00), (2.6, 0.26), (9.0, 0.13), (30.0, 0.08))
 ESPOSIZIONE = 3.4          # quanto e' luminoso il risultato
 
+# L'alone di sfondo. Le tinte scritte qui sono quelle BLU di partenza: nel
+# disegno finito prendono la tonalita' personale, tenendo la loro saturazione e
+# la loro luminosita' (vedi _sfondo_tinto). Sono piu' chiare di quelle a
+# schermo — 0.115 contro 0.085 al centro — perche' l'immagine ferma non ha il
+# bagliore a darle aria e il fondo deve fare quel lavoro da solo.
 SFONDO_CENTRO = (0.045, 0.060, 0.115)
 SFONDO_BORDO = (0.004, 0.006, 0.016)
 VIGNETTA = 0.35            # quanto scuriscono i bordi
+
+# Quanto sono accesi i colori. 1.0 e' la taratura originale, che alla prova
+# usciva slavata: in fusione additiva le particelle sovrapposte sommano la luce
+# e la spingono verso il bianco, quindi una saturazione che sul singolo colore
+# sembra giusta a schermo si perde. Si alza la SATURAZIONE e basta — tonalita'
+# e luminosita' restano quelle tarate, cosi' questa manopola cambia quanto il
+# colore e' acceso e non quale colore e'.
+#
+# Il tetto pratico e' 1.5: da li' in su rosso e ambra sbattono contro la
+# saturazione piena, le due tinte del gradiente ci arrivano insieme e il
+# mandala diventa una tinta unita invece di un passaggio.
+INTENSITA_COLORE = 1.35
+# Copia del valore di visuals/td_face_points.py, come per GRADIENTE: se lo
+# cambi qui, cambialo anche li' — altrimenti l'immagine da portare via non e'
+# piu' il mandala che la persona ha visto.
 
 # ---------- il gradiente, per emozione ----------
 # La tonalita' scelta da Claude resta l'ANCORA: e' il colore personale, ricavato
@@ -74,6 +94,14 @@ VIGNETTA = 0.35            # quanto scuriscono i bordi
 # il colore percorre.
 # 'verso' dice da che parte va la tinta luminosa: non cambia il centro, ma
 # evita che due emozioni di pari apertura si somiglino.
+#
+# Le aperture sono state provate anche molto piu' larghe (86/74/32/14),
+# pensando che stringendosi cosi' il mandala uscisse quasi monocromo. Messe a
+# confronto una accanto all'altra non e' vero: cambia pochissimo, perche' fra
+# le due tinte quello che l'occhio legge e' soprattutto il salto di
+# LUMINOSITA', non quello di tonalita' — e in cambio le due tinte si
+# allontanano abbastanza dall'ancora da non farla piu' riconoscere. Restano
+# questi.
 GRADIENTE = {
     "Q1": {"apertura": 46.0, "verso": 1, "sat_fondo": 0.86, "sat_luce": 0.60},   # felice-attivo
     "Q2": {"apertura": 42.0, "verso": -1, "sat_fondo": 0.92, "sat_luce": 0.68},  # teso-agitato
@@ -205,6 +233,17 @@ def _bagliore(mappa):
     return fuori
 
 
+def _sfondo_tinto(rgb, tonalita):
+    """L'alone di sfondo nella tonalita' personale.
+
+    Cambia SOLO la tinta: saturazione e luminosita' restano quelle tarate sul
+    blu, perche' il fondo deve continuare a essere un alone appena percettibile
+    che da' aria al nero, non una macchia di colore dietro il mandala."""
+    _, sat, val = colorsys.rgb_to_hsv(*rgb)
+    return colorsys.hsv_to_rgb((float(tonalita) % 360.0) / 360.0,
+                               min(1.0, sat * INTENSITA_COLORE), val)
+
+
 def _colora(luce, tonalita, lato, emozione=EMOZIONE_PREDEFINITA):
     """Dalla quantita' di luce al colore: le zone deboli prendono la tinta
     profonda, quelle intense la tinta chiara. Due toni invece di uno solo
@@ -221,12 +260,14 @@ def _colora(luce, tonalita, lato, emozione=EMOZIONE_PREDEFINITA):
     mezza = (g["apertura"] / 2.0) / 360.0 * g["verso"]
     h_fondo = (h - mezza) % 1.0
     h_chiaro = (h + mezza) % 1.0
-    fondo = np.array(colorsys.hsv_to_rgb(h_fondo, g["sat_fondo"], 0.34), dtype=np.float32)
+    sat_fondo = min(1.0, g["sat_fondo"] * INTENSITA_COLORE)
+    sat_luce = min(1.0, g["sat_luce"] * INTENSITA_COLORE)
+    fondo = np.array(colorsys.hsv_to_rgb(h_fondo, sat_fondo, 0.34), dtype=np.float32)
     # la saturazione della tinta chiara conta piu' di quanto sembri: e' quella
     # delle zone piu' luminose, cioe' quelle che si vedono per prime. Troppo
     # bassa e il mandala sbiadisce verso il bianco proprio dove dovrebbe essere
     # piu' vivo.
-    chiaro = np.array(colorsys.hsv_to_rgb(h_chiaro, g["sat_luce"], 1.0), dtype=np.float32)
+    chiaro = np.array(colorsys.hsv_to_rgb(h_chiaro, sat_luce, 1.0), dtype=np.float32)
 
     # la luce cresce senza limite dove le particelle si ammassano: la curva la
     # comprime, cosi' i grumi restano leggibili invece di diventare macchie
@@ -240,8 +281,8 @@ def _colora(luce, tonalita, lato, emozione=EMOZIONE_PREDEFINITA):
     coord = (np.arange(lato, dtype=np.float32) - lato / 2.0) / (lato / 2.0)
     xx, yy = np.meshgrid(coord, coord)
     distanza = np.clip(np.sqrt(xx * xx + yy * yy), 0.0, 1.0)[..., None]
-    centro = np.array(SFONDO_CENTRO, dtype=np.float32)
-    bordo = np.array(SFONDO_BORDO, dtype=np.float32)
+    centro = np.array(_sfondo_tinto(SFONDO_CENTRO, tonalita), dtype=np.float32)
+    bordo = np.array(_sfondo_tinto(SFONDO_BORDO, tonalita), dtype=np.float32)
     sfondo = centro + (bordo - centro) * distanza
 
     immagine = sfondo + disegno

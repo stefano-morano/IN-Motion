@@ -42,7 +42,13 @@ RISERVA = {
     "segnale_disagio": False,
     "mandala_petali": 6,
     "mandala_anelli": 3,
-    "mandala_tonalita": 200.0,   # un blu-verde neutro
+    # Non piu' 200 (il blu-verde "neutro" di prima). La tinta personale ormai
+    # colora anche la seconda meta' della sessione, non solo il mandala:
+    # ripiegare su un blu vorrebbe dire ricadere esattamente nel colore di
+    # partenza, e nessuno si accorgerebbe che un colore e' mai arrivato. Il
+    # ripiego va in coppia con l'emozione qui sotto — Q2, teso-agitato — ed e'
+    # il rosso caldo della sua energia, quella che la traccia accompagna giu'.
+    "mandala_tonalita": 14.0,
     # Q2 (teso-agitato) e' il ripiego piu' sicuro: la sua musica va incontro
     # all'energia di chi ascolta e poi la accompagna giu'. Se non sappiamo
     # nulla della persona, e' il viaggio che funziona per piu' gente.
@@ -92,7 +98,13 @@ many simultaneous thoughts, lower if it suggests calm or a single fixed thought
 long-standing, lower if it is a simple, isolated episode
 - mandala_tonalita: a number between 0 and 359 (colour hue degrees), chosen to \
 evoke the prevailing emotion — no need to follow rigid conventions \
-(e.g. red=anger), choose what feels right for this particular account
+(e.g. red=anger), choose what feels right for this particular account. This \
+hue does not only colour the mandala: from the moment you answer it seeps \
+into the whole rest of the session, so it has to be able to carry it. Blue \
+and indigo (roughly 190-250) are what the piece already looks like BEFORE you \
+answer: choosing a hue there means the person sees no change at all. Go there \
+only if that account truly asks for it, and otherwise pick a hue that stands \
+clearly apart from it.
 
 If serious suffering emerges from their words — thoughts of self-harm, deep \
 despair, a crisis under way — do not answer with motivational lines: they \

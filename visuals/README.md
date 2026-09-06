@@ -79,6 +79,46 @@ petali, quanti anelli, che colore) da cio' che hai raccontato, e **la
 complessita' cresce con quanto sei rimasto in meditazione** — un livello di
 dettaglio ogni 40 secondi.
 
+## Il colore
+
+Il blu delle prime fasi non e' il colore dell'opera: e' il colore di **prima
+che l'opera sappia chi ha davanti**. La tinta che Claude ricava dal racconto
+non aspetta il mandala per farsi vedere — entra appena esiste, e cresce fase
+per fase:
+
+| Fase | Colore |
+|---|---|
+| dall'apertura all'attesa | il blu di sempre |
+| Danza | lo stesso blu, che comincia a scaricarsi |
+| Meditazione | la tinta di chi medita, tenuta bassa |
+| Mandala, dissoluzione, commiato | quella tinta, piena |
+
+Fra la danza e la meditazione il colore passa per un grigio. E' voluto, ed e'
+l'unica strada onesta: il blu sta a 212 gradi e le tinte personali stanno
+spesso dall'altra parte della ruota, quindi **mediarle** farebbe passare il
+colore per una TERZA tinta — con un'ancora ambra la meditazione resterebbe un
+minuto su un verde che non c'entra niente. Invece la tonalita' non si sposta
+mai: prima e' il blu che si scarica, poi e' la tinta personale che si carica.
+Cio' che si vede non e' un colore intermedio, e' il blu che lascia la presa.
+
+Le tre soste (`TINTA_DANZA`, `TINTA_MEDITAZIONE`, `TINTA_MANDALA` in
+`esperienza.py`) stanno apposta **fuori** dal punto grigio: il grigio si
+attraversa in movimento, dove non lo si nota.
+
+Segue la stessa strada anche **l'alone di sfondo**, cosi' il colore non e'
+addosso alle particelle ma nell'aria intorno. Dentro TD forma e colore
+dell'alone sono due nodi separati (`sfondo` x `sfondo_tinta`): una tabella di
+chiavi non si puo' riscrivere ad ogni fotogramma, un parametro con
+un'espressione si rivaluta da solo.
+
+Quanto i colori sono accesi lo decide una manopola sola, `INTENSITA_COLORE`.
+Alza **solo la saturazione** — tonalita' e luminosita' restano quelle tarate.
+Il tetto pratico e' 1.5: da li' in su le due tinte del gradiente arrivano
+insieme alla saturazione piena e il mandala diventa una tinta unita invece di
+un passaggio. Il valore e' duplicato in `td_face_points.py` e `mandala.py`,
+come `GRADIENTE`: **se lo cambi, cambialo in tutti e due**, o l'immagine da
+portare via non e' piu' quella che la persona ha visto.
+
 ## I file
 
 | File | Cosa fa |
@@ -110,9 +150,10 @@ tutte costanti in cima.
 
 ## Come e' fatto
 
-**Python decide, TouchDesigner disegna.** Python manda sette soli messaggi OSC
-sulla porta 8001 (`/prepara`, `/mandala`, `/scena`, `/finestra`, `/azzera`,
-`/buio`, `/accendi`); i punti del viso viaggiano a parte sulla 8000. TD non sa
+**Python decide, TouchDesigner disegna.** Python manda nove soli messaggi OSC
+sulla porta 8001 (`/prepara`, `/mandala`, `/tinta`, `/tinta_forza`, `/scena`,
+`/finestra`, `/azzera`, `/buio`, `/accendi`); i punti del viso viaggiano a
+parte sulla 8000. TD non sa
 nulla dell'esperienza: sa solo come passare da una forma all'altra.
 
 **Niente blocca il ciclo.** `esperienza.py` non aspetta mai: ad ogni fotogramma
@@ -204,14 +245,19 @@ viene trascritto in locale: a TouchDesigner non arriva mai il video, e l'audio
 non lascia il computer. Esce solo il testo, e solo verso Claude.
 
 **La resa grafica e' codice, non nodi cliccati.** Colore per particella, fusione
-additiva e la catena bagliore → sfondo → vignetta → grana sono costruiti da
-`td_estetica.py`. Il `.toe` e' binario: se la resa vivesse solo li' dentro,
+additiva e la catena bagliore → sfondo (forma × tinta) → vignetta → grana sono
+costruiti da `td_estetica.py`. Il `.toe` e' binario: se la resa vivesse solo li' dentro,
 sarebbe invisibile a git e irrecuperabile in caso di guaio. Per ricostruirla,
 dentro TouchDesigner:
 
 ```python
-exec(open('/percorso/di/visuals/td_estetica.py').read())
+exec(open('/percorso/di/visuals/td_estetica.py', encoding='utf-8').read())
 ```
+
+`encoding='utf-8'` non e' facoltativo: il Python dentro TouchDesigner apre i
+file in ascii e si ferma sul primo trattino lungo o accento — e questi file ne
+sono pieni. Stesso discorso per `td_ripristina.py`, che rimette dentro TD
+tutti e tre i file di questa cartella in un colpo solo.
 
 ## Prima volta, su un computer nuovo
 

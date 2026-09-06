@@ -196,6 +196,39 @@ CODA_VOCE = 1.5         # respiro dopo l'ultima parola, prima di cambiare
 ATTENUAZIONE_VOCE = 0.35    # quanto scende la musica mentre la voce parla
 MAX_ATTESA_VOCE = 15.0      # oltre, si va avanti muti invece che aspettare
 
+# ---------- il colore personale ----------
+# Il blu delle prime fasi e' il colore di PRIMA che l'opera sappia chi ha
+# davanti. La tinta che Claude ricava dal racconto non aspetta il mandala per
+# farsi vedere: entra appena esiste, e cresce fase per fase. Cosi' il mandala
+# smette di essere l'unico momento colorato e diventa l'arrivo di qualcosa che
+# era gia' cominciato — e le sette fasi non sono piu' cinque blu e due colorate.
+#
+# I tre valori non sono distribuiti a caso lungo la strada: a meta' (0.5) il
+# colore passa per il grigio, perche' e' li' che il blu ha finito di scaricarsi
+# e la tinta personale non ha ancora cominciato a caricarsi (vedi _miscela in
+# td_face_points.py). Una fase che si fermasse li' resterebbe scolorita per un
+# minuto, quindi le due soste stanno una PRIMA e una DOPO quel punto, e il
+# grigio si attraversa in movimento — dove non lo si nota.
+#
+# Cosi' la danza e' ancora blu, ma un blu che sta mollando la presa; la
+# meditazione e' gia' la tinta di chi medita, tenuta bassa; il mandala e' quella
+# tinta piena. Nessuna delle tre e' riconoscibile come "un cambio di colore":
+# se ne accorge chi guarda tutta la sessione, ed e' giusto cosi', perche' e'
+# un cambiamento che RIGUARDA chi ha parlato.
+TINTA_DANZA = 0.18          # il blu appena scaricato. Provato anche a 0.25 e
+                            # 0.35: da li' in poi non si legge piu' come blu
+                            # che molla la presa ma come immagine scolorita,
+                            # e uno scolorimento sembra un guasto
+TINTA_MEDITAZIONE = 0.75    # la tinta personale a meta' saturazione
+TINTA_MANDALA = 1.0         # la tinta personale piena
+# La miscela si sposta lentamente, e sempre a cavallo di un cambio di scena:
+# il colore cambia mentre le particelle si stanno gia' muovendo, che e' il
+# momento in cui un cambio di tinta si nota di meno.
+RAMPA_TINTA = 12.0
+RAMPA_TINTA_MANDALA = 6.0    # l'ultima salita e' piu' rapida: dev'essere
+                             # finita quando il mandala si compone, altrimenti
+                             # lo si vedrebbe cambiare colore da fermo
+
 # ---------- fase 2: meditazione ----------
 MIN_MEDITAZIONE = 3.0       # una riapertura fulminea non puo' bastare a finirla
 MAX_MEDITAZIONE = 600.0     # rete di sicurezza per una presentazione (10 minuti)
@@ -467,6 +500,10 @@ class Esperienza:
             if pronto and td_pronto and attesa_finita:
                 self._costruisci_copione()
                 self._vai("danza", ora)
+                # il colore comincia ad entrare qui: sono le prime parole che
+                # l'opera ha scritto per questa persona, ed e' il primo
+                # momento in cui ha senso che non sia piu' del tutto blu
+                self.scena.tinta_forza(TINTA_DANZA, RAMPA_TINTA)
                 self._mostra_scena_corrente()
 
         elif self.stato == "danza":
@@ -485,6 +522,9 @@ class Esperienza:
             if stato_occhi == "chiusi" or trascorso >= MAX_ATTESA_GESTO:
                 self._vai("meditazione", ora)
                 self.scena.mostra("volto", transizione=TRANSIZIONE)
+                # il colore sale insieme alla musica dell'emozione: sono la
+                # stessa cosa detta in due modi, e devono entrare insieme
+                self.scena.tinta_forza(TINTA_MEDITAZIONE, RAMPA_TINTA)
                 self.tappeto.volume(VOLUME_MEDITAZIONE, fade=6.0)
                 self.musica.play(self.emozione, fade=6.0, volume=VOLUME_PIENO)
 
@@ -494,6 +534,10 @@ class Esperienza:
                 self._durata_meditazione = trascorso
                 self._vai("preparazione_mandala", ora)
                 self._mostra_blocco(ATTESA_MANDALA, 0, ora, TRANSIZIONE_BREVE)
+                # l'ultimo passo: la scritta d'attesa finisce di colorarsi
+                # mentre si legge, cosi' il mandala non arriva come uno stacco
+                # di colore ma come il punto d'arrivo di quello che c'era gia'
+                self.scena.tinta_forza(TINTA_MANDALA, RAMPA_TINTA_MANDALA)
                 self._invia_mandala()
                 self.musica.fade_out(6.0)
                 self.tappeto.volume(VOLUME_FINALE, fade=6.0)
@@ -629,6 +673,10 @@ class Esperienza:
     def _prepara_scritte_generate(self):
         m = self._materiale
         self.emozione = m.get("emozione", "Q2") 
+        # la tinta personale si consegna a TD SUBITO, non col mandala: da qui
+        # in poi esiste un colore di questa persona, e le fasi che seguono
+        # possono cominciare a miscelarlo al blu
+        self.scena.tinta(m["mandala_tonalita"], self.emozione)
         print(f"  frase 1:  {m['frase_1']}")
         print(f"  frase 2:  {m['frase_2']}")
         print(f"  concetto: {m['concetto']}")

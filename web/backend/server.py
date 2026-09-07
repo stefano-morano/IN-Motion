@@ -42,11 +42,19 @@ ASSETS = WEB / "assets"
 
 # ------------------------------------------------------------------ inietta stub PRIMA di importare esperienza.py
 # esperienza.py fa `import musica`, `import stacco` e `import voce`: li
-# sostituiamo con versioni web che accodano eventi JSON (o no-op per la voce)
-# invece di usare sounddevice / TTS desktop.
+# sostituiamo con versioni web che accodano eventi JSON per il browser invece
+# di usare sounddevice.
+#
+# L'ORDINE DI QUESTE RIGHE E' PARTE DEL MECCANISMO, non stile. VoceWS non e'
+# piu' uno stub vuoto: EREDITA dalla Voce vera, per riusarne cache, scelta
+# della voce e durate. Quindi va importato in una finestra precisa —
+#   dopo   che visuals/ e' nel path (senza, `import voce` non trova niente)
+#   dopo   che lo stub di musica c'e' (voce.py fa `import musica` in testa)
+#   prima  che il nome "voce" sia preso dallo stub (altrimenti VoceWS
+#          erediterebbe da se stessa)
+# Spostare una di queste righe rompe l'avvio, e l'errore non dice perche'.
 from musica_ws import MusicaWS, SAMPLE_RATE as _SR  # noqa: E402
 from stacco_ws import StaccoWS                       # noqa: E402
-from voce_ws import VoceWS                           # noqa: E402
 
 _musica_stub = types.ModuleType("musica")
 _musica_stub.SAMPLE_RATE = _SR
@@ -57,12 +65,15 @@ _stacco_stub = types.ModuleType("stacco")
 _stacco_stub.Stacco = StaccoWS
 sys.modules["stacco"] = _stacco_stub
 
+# Porta i moduli dei visuals nel path (esperienza, testi, occhi, mandala, voce…)
+sys.path.insert(0, str(VISUALS))
+
+# adesso, e non prima: qui dentro `import voce` trova quella vera
+from voce_ws import VoceWS                           # noqa: E402
+
 _voce_stub = types.ModuleType("voce")
 _voce_stub.Voce = VoceWS
 sys.modules["voce"] = _voce_stub
-
-# Porta i moduli dei visuals nel path (esperienza, testi, occhi, mandala, …)
-sys.path.insert(0, str(VISUALS))
 
 import esperienza as _exp_mod  # noqa: E402
 
@@ -189,16 +200,71 @@ async def firebase_config():
     })
 
 
+@app.get("/voce/{nome}")
+def voce_clip(nome: str):
+    """Una clip della guida vocale, dalla cache condivisa con la versione
+    desktop (visuals/voce_cache/).
+
+    Il nome e' l'impronta che la calcola: sha1 di firma + testo parlato,
+    quindi non e' indovinabile e non ci si puo' arrivare da fuori. Lo si
+    ricontrolla comunque — un nome che contenga separatori di percorso
+    uscirebbe dalla cartella, ed e' il tipo di buco che non si lascia aperto
+    solo perche' il server gira in locale."""
+    if not nome.endswith(".wav") or "/" in nome or "\\" in nome or ".." in nome:
+        return JSONResponse({"errore": "nome non valido"}, status_code=400)
+    percorso = (VISUALS / "voce_cache" / nome).resolve()
+    if not percorso.is_file() or (VISUALS / "voce_cache").resolve() not in percorso.parents:
+        return JSONResponse({"errore": "clip non trovata"}, status_code=404)
+    return FileResponse(str(percorso), media_type="audio/wav")
+
+
+@app.get("/mandala/ultimo")
+def mandala_ultimo():
+    """Il mandala della sessione appena finita, da portare via.
+
+    Il file esiste gia': _salva_immagine() in esperienza.py lo scrive in un
+    thread appena i parametri sono decisi, ed essendo esperienza.py condivisa
+    lo fa anche qui. Mancava solo il modo di prenderlo — a schermo il mandala
+    e' fatto di 13.664 particelle che si muovono, questo e' lo stesso disegno
+    con 260.000 particelle ferme, a 2400x2400.
+
+    Si serve il piu' recente: l'app e' locale e una sessione alla volta,
+    quindi il piu' recente e' quello di chi ha appena finito.
+    """
+    cartella = VISUALS / "mandala"
+    if not cartella.is_dir():
+        return JSONResponse({"errore": "nessun mandala"}, status_code=404)
+    file = sorted(cartella.glob("mandala_*.png"), key=lambda f: f.stat().st_mtime)
+    if not file:
+        return JSONResponse({"errore": "nessun mandala"}, status_code=404)
+    ultimo = file[-1]
+    return FileResponse(str(ultimo), media_type="image/png", filename=ultimo.name)
+
+
+# I file del frontend si servono SENZA CACHE, e non e' pigrizia.
+#
+# Il browser tiene i moduli ES in cache in modo aggressivo e non li rivalida
+# nemmeno cambiando l'indirizzo della pagina. Modificando un file e
+# ricaricando si finisce con meta' dei moduli nuovi e meta' vecchi — e se uno
+# nuovo importa qualcosa che nella copia vecchia non c'e' ancora, l'import
+# fallisce, app.js non parte MAI e a schermo non compare nessun errore: si
+# vede solo un'interfaccia in cui i pulsanti non fanno niente. E' un sintomo
+# che non somiglia per niente alla causa, ed e' gia' costato una serata.
+#
+# Qui non c'e' banda da risparmiare: il server e' sulla stessa macchina.
+_SENZA_CACHE = {"Cache-Control": "no-store, must-revalidate"}
+
+
 @app.get("/")
 async def root():
-    return FileResponse(str(FRONTEND / "index.html"))
+    return FileResponse(str(FRONTEND / "index.html"), headers=_SENZA_CACHE)
 
 @app.get("/{path:path}")
 async def static(path: str):
     target = FRONTEND / path
     if target.exists() and target.is_file():
-        return FileResponse(str(target))
-    return FileResponse(str(FRONTEND / "index.html"))
+        return FileResponse(str(target), headers=_SENZA_CACHE)
+    return FileResponse(str(FRONTEND / "index.html"), headers=_SENZA_CACHE)
 
 # ------------------------------------------------------------------ helpers
 RACCONTO_DEFAULT = "oggi mi sento agitato e non riesco a fermare i pensieri"
@@ -307,7 +373,7 @@ async def ws_handler(ws: WebSocket):
         try:
             esp = _exp_mod.Esperienza(
                 scena, racconto, ascolto, musica=musica, tappeto=tappeto,
-                voce=VoceWS((tappeto, musica)),
+                voce=VoceWS(coda, (tappeto, musica)),
                 sincronia=stato,
             )
             esp_ref["esp"] = esp

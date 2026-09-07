@@ -19,6 +19,21 @@ const PALETTE_CALMA = {
     fondo: [0.020, 0.045, 0.115],
     luce:  [0.300, 0.460, 0.640],
 };
+
+// Il blu qui sopra non e' IL colore dell'opera: e' il colore di PRIMA che
+// l'opera sappia chi ha davanti. La tinta che Claude ricava dal racconto non
+// aspetta il mandala per farsi vedere — entra appena esiste e cresce fase per
+// fase. Quanta ne sia entrata lo dice tintaForza(), che comanda la macchina a
+// stati Python via /tinta_forza.
+// Allineato a visuals/td_face_points.py: se cambi i numeri qui, cambiali anche
+// li' e in visuals/mandala.py.
+const DURATA_TINTA = 12.0;
+const INTENSITA_COLORE = 1.35;
+
+// L'alone di sfondo. Segue anche lui la tinta personale, cosi' il colore non
+// e' addosso alle particelle ma nell'aria intorno. Nello shader la FORMA
+// dell'alone e il suo COLORE sono separati, come i due nodi dentro TD.
+const SFONDO_CALMA = [0.030, 0.042, 0.085];
 const NEBBIA_LUMINOSITA = 0.35;
 const SCINTILLIO = 0.16;
 const SCINTILLIO_VELOCITA = 0.35;
@@ -148,6 +163,47 @@ function _hsvToRgb(h, s, v) {
     }
 }
 
+function _rgbToHsv(r, g, b) {
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const d = max - min;
+    let h = 0;
+    if (d > 1e-9) {
+        if (max === r)      h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+        else if (max === g) h = ((b - r) / d + 2) / 6;
+        else                h = ((r - g) / d + 4) / 6;
+    }
+    return [h, max > 1e-9 ? d / max : 0, max];
+}
+
+/** Lo stesso colore, con la saturazione alzata di INTENSITA_COLORE. */
+function _acceso(rgb) {
+    const [h, s, v] = _rgbToHsv(rgb[0], rgb[1], rgb[2]);
+    return _hsvToRgb(h, Math.min(1, s * INTENSITA_COLORE), v);
+}
+
+/**
+ * Il passaggio dal blu alla tinta personale, k da 0 a 1.
+ *
+ * NON e' una media fra i due colori, ed e' una lezione presa sbagliando: il
+ * blu sta a 212 gradi e le tinte che Claude sceglie stanno spesso dall'altra
+ * parte della ruota, quindi mediarli farebbe passare il colore per la strada
+ * piu' corta fra i due — e quella strada e' una TERZA tinta. Con un'ancora
+ * ambra la meditazione restava per un minuto su un verde che non c'entrava
+ * niente con quello che la persona aveva raccontato.
+ *
+ * Qui invece la tonalita' non si sposta mai: fino a meta' strada e' il blu che
+ * si scarica, da meta' in poi e' la tinta personale che si carica, e nel mezzo
+ * passano entrambe per il grigio. La LUMINOSITA' invece attraversa dritta: e'
+ * l'unica delle tre a non avere una strada sbagliata.
+ */
+function _miscela(blu, personale, k) {
+    const [hB, sB, vB] = _rgbToHsv(blu[0], blu[1], blu[2]);
+    const [hP, sP, vP] = _rgbToHsv(personale[0], personale[1], personale[2]);
+    const v = vB + (vP - vB) * k;
+    if (k < 0.5) return _hsvToRgb(hB, sB * (1 - 2 * k), v);
+    return _hsvToRgb(hP, sP * (2 * k - 1), v);
+}
+
 // ------------------------------------------------------------------ classe principale
 export class LogicaParticelle {
     constructor() {
@@ -192,6 +248,57 @@ export class LogicaParticelle {
         this._genera_mandala(n, petali, anelli, seed);
     }
 
+    /**
+     * Registra la tinta personale, quella che Claude ricava dal racconto.
+     * Arriva molto prima del mandala: appena il modello ha risposto. Da sola
+     * non cambia nulla a schermo — quanta se ne veda lo decide tintaForza().
+     */
+    tinta(tonalita, emozione = MANDALA_EMOZIONE_DEFAULT) {
+        this._c.mandala_tonalita = Number(tonalita);
+        this._c.mandala_emozione = String(emozione || MANDALA_EMOZIONE_DEFAULT);
+    }
+
+    /**
+     * Quanta tinta personale si vede: 0 il blu di sempre, 1 solo lei.
+     * Si sposta in 'durata' secondi invece che di scatto, e parte dal valore
+     * raggiunto ADESSO: cosi' due comandi ravvicinati si concatenano invece
+     * di strapparsi.
+     */
+    tintaForza(valore, durata = DURATA_TINTA) {
+        this._c.tinta_da = this.quantaTinta();
+        this._c.tinta_a = Math.min(1, Math.max(0, Number(valore)));
+        this._c.tinta_t0 = performance.now() / 1000;
+        this._c.tinta_durata = Math.max(0, Number(durata));
+    }
+
+    /** La miscela in corso. Senza tinta risponde 0, cioe' il blu. */
+    quantaTinta(ora = null) {
+        const c = this._c;
+        if (c.tinta_a == null) return 0;
+        if (ora === null) ora = performance.now() / 1000;
+        const da = c.tinta_da || 0, a = c.tinta_a;
+        if (!(c.tinta_durata > 0)) return a;
+        let k = Math.min(1, Math.max(0, (ora - c.tinta_t0) / c.tinta_durata));
+        // smoothstep: la miscela parte e arriva DA FERMA. Un cambio di tinta
+        // si nota proprio nell'istante in cui comincia e in quello in cui finisce.
+        k = k * k * (3 - 2 * k);
+        return da + (a - da) * k;
+    }
+
+    /**
+     * Il colore dell'alone di sfondo adesso. Lo shader ci moltiplica sopra il
+     * gradiente circolare, che e' bianco e porta solo la forma.
+     */
+    sfondoColore(ora = null) {
+        const blu = _acceso(SFONDO_CALMA);
+        if (this._c.mandala_tonalita == null) return blu;
+        // la tinta personale tiene saturazione e luminosita' dell'alone blu:
+        // deve restare l'alone appena percettibile di sempre, non una macchia
+        const [, sat, val] = _rgbToHsv(SFONDO_CALMA[0], SFONDO_CALMA[1], SFONDO_CALMA[2]);
+        const h = (((this._c.mandala_tonalita % 360) + 360) % 360) / 360;
+        return _miscela(blu, _acceso(_hsvToRgb(h, sat, val)), this.quantaTinta(ora));
+    }
+
     vai_a(tipo, testo = '', durata = null) {
         if (tipo === 'dissoluzione') {
             this._c.fuga = null;
@@ -211,6 +318,12 @@ export class LogicaParticelle {
         this._c.naso_prec = null;
         this._c.t_diss = null;
         this._c.testi = {};
+        // la tinta personale se ne va con le frasi: senza questo la sessione
+        // nuova comincerebbe gia' colorata di chi c'era prima
+        this._c.mandala_tonalita = null;
+        this._c.mandala_emozione = null;
+        this._c.tinta_a = null;
+        this._c.tinta_da = null;
         this._c.scena_da = ['volto', ''];
         this._c.scena_a  = ['volto', ''];
         this._c.t0    = performance.now() / 1000;
@@ -331,7 +444,7 @@ export class LogicaParticelle {
 
         const colori = this._colori(da_scena[0], a_scena[0], avanzamento, pos, ora);
 
-        return { posizioni: pos, colori };
+        return { posizioni: pos, colori , sfondo: this.sfondoColore(ora) };
     }
 
     // ---------------------------------------------------------------- interno: inizializzazione
@@ -656,28 +769,51 @@ export class LogicaParticelle {
     }
 
     // ---------------------------------------------------------------- colori
-    _palette(tipo) {
-        if ((tipo === 'mandala' || tipo === 'dissoluzione') && this._c.mandala_tonalita != null) {
-            const h = ((this._c.mandala_tonalita % 360) + 360) % 360 / 360;
-            const g = MANDALA_GRADIENTE[this._c.mandala_emozione]
-                || MANDALA_GRADIENTE[MANDALA_EMOZIONE_DEFAULT];
-            const mezza = (g.apertura / 2.0) / 360.0 * g.verso;
-            const hFondo = (h - mezza + 1) % 1;
-            const hLuce  = (h + mezza + 1) % 1;
-            // Valori luminosità tipici delle particelle (più scuri dell'immagine PNG)
-            const fondo = _hsvToRgb(hFondo, g.satFondo, 0.090);
-            const luce  = _hsvToRgb(hLuce,  g.satLuce,  0.620);
-            return { fondo, luce };
+    /** La tonalita' scelta da Claude, in una versione profonda e una luminosa. */
+    _tintaPersonale() {
+        const h = ((this._c.mandala_tonalita % 360) + 360) % 360 / 360;
+        const g = MANDALA_GRADIENTE[this._c.mandala_emozione]
+            || MANDALA_GRADIENTE[MANDALA_EMOZIONE_DEFAULT];
+        const mezza = (g.apertura / 2.0) / 360.0 * g.verso;
+        // I valori restano bassi come nella palette blu: sono la luce di UNA
+        // particella, e in fusione additiva dove si sovrappongono si somma.
+        return {
+            fondo: _hsvToRgb((h - mezza + 1) % 1, Math.min(1, g.satFondo * INTENSITA_COLORE), 0.090),
+            luce:  _hsvToRgb((h + mezza + 1) % 1, Math.min(1, g.satLuce  * INTENSITA_COLORE), 0.620),
+        };
+    }
+
+    /**
+     * Le due tinte fra cui pesca ogni particella.
+     *
+     * Il mandala e la sua dissoluzione usano la tinta personale PIENA: sono il
+     * momento in cui il colore di chi medita e' il soggetto. Tutte le altre
+     * forme la miscelano al blu nella misura decisa da tintaForza().
+     */
+    _palette(tipo, ora = null) {
+        const bluFondo = _acceso(PALETTE_CALMA.fondo);
+        const bluLuce  = _acceso(PALETTE_CALMA.luce);
+        if (this._c.mandala_tonalita == null) {
+            return { fondo: bluFondo, luce: bluLuce };
         }
-        return { fondo: PALETTE_CALMA.fondo, luce: PALETTE_CALMA.luce };
+        const p = this._tintaPersonale();
+        // la dissoluzione e' il mandala che si disfa: tiene il suo colore
+        if (tipo === 'mandala' || tipo === 'dissoluzione') return p;
+
+        const k = this.quantaTinta(ora);
+        if (k <= 0) return { fondo: bluFondo, luce: bluLuce };
+        return {
+            fondo: _miscela(bluFondo, p.fondo, k),
+            luce:  _miscela(bluLuce,  p.luce,  k),
+        };
     }
 
     _colori(tipo_da, tipo_a, avanzamento, pos, ora) {
         const n = pos.length / 3;
-        const pa = this._palette(tipo_a);
+        const pa = this._palette(tipo_a, ora);
         let fondo, luce;
         if (tipo_da !== tipo_a && avanzamento < 1.0) {
-            const pd = this._palette(tipo_da);
+            const pd = this._palette(tipo_da, ora);
             const k = avanzamento;
             fondo = pd.fondo.map((v, i) => v * (1-k) + pa.fondo[i] * k);
             luce  = pd.luce.map((v, i)  => v * (1-k) + pa.luce[i]  * k);

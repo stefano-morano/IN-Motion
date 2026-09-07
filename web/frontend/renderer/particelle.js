@@ -9,6 +9,41 @@ import * as THREE from 'three';
 import { PostProcessing } from './post.js';
 import { larghezzaMondo, altezzaMondo } from './scena.js';
 
+// Quanto e' grande una particella, in pixel — ed e' la leva vera sulla
+// luminosita', molto piu' del bagliore: in fusione additiva la luce la fa la
+// SOVRAPPOSIZIONE, e l'area cresce col quadrato.
+//
+// Il valore e' in pixel LOGICI e viene moltiplicato per il pixel ratio, cosi'
+// l'immagine e' la stessa sul portatile e sul proiettore. Attenzione pero' a
+// come si legge il numero: su uno schermo Retina il ratio e' 2, quindi 2 qui
+// significa 4 pixel reali di lato — SEDICI volte l'area di prima, quando ogni
+// particella era clampata a un pixel solo. La luminosita' cresce col quadrato,
+// e i primi tentativi (3, poi 2) erano entrambi troppo per questo.
+//
+// Si gira anche dall'indirizzo, per tarare senza toccare il file:
+//   ?particelle=1.0    piu' vicino alla polvere spenta
+//   ?particelle=1.6    piu' vicino alla luce piena
+const DIMENSIONE_PARTICELLA = 1.0;
+
+// Una manopola letta dall'indirizzo: ?particelle=2.4&esposizione=1.2
+// Serve a tarare la resa sul proiettore vero. Trovati i numeri, si scrivono
+// nelle costanti qui sopra: il parametro e' per provare, non per l'opera.
+//
+// E' ripetuta anche in renderer/post.js, e la ripetizione e' voluta. Metterla in comune in
+// scena.js sembrava piu' pulito e si e' rivelato un buco: il browser tiene i
+// moduli in cache e non li rivalida, quindi bastava una copia vecchia di
+// scena.js senza quell'export perche' l'import fallisse, app.js non partisse
+// MAI e l'interfaccia restasse con tutti i pulsanti inerti — senza un errore
+// a schermo. Sei righe ripetute costano meno di quel sintomo.
+function daIndirizzo(nome, predefinito) {
+    try {
+        const v = parseFloat(new URLSearchParams(location.search).get(nome));
+        return Number.isFinite(v) && v > 0 ? v : predefinito;
+    } catch (_) {
+        return predefinito;
+    }
+}
+
 export class RendererParticelle {
     constructor(canvas) {
         // Renderer WebGL
@@ -38,16 +73,35 @@ export class RendererParticelle {
         this._geo.setAttribute('position', new THREE.BufferAttribute(this._posArr, 3));
         this._geo.setAttribute('color',    new THREE.BufferAttribute(this._colArr, 3));
 
-        // Materiale: fusione additiva senza depth test
+        // Materiale: fusione additiva senza depth test.
+        //
+        // sizeAttenuation e' FALSE, e non e' un dettaglio. Lo shader dei punti
+        // di Three.js applica l'attenuazione solo con una camera PROSPETTICA;
+        // la nostra e' ortografica, quindi veniva ignorata e 'size' non era
+        // in unita' di mondo ma direttamente in pixel. Con size 0.021 la GPU
+        // alzava al minimo e ogni particella era UN PIXEL: misurato, 0.021 e
+        // 1.0 davano immagini identiche — stessa luminanza media, stessa
+        // percentuale di pixel accesi. L'opera rendeva circa un ottavo della
+        // luce che doveva, e nessuna manopola di esposizione poteva
+        // recuperarlo, perche' schiariva puntini isolati invece di farli
+        // sovrapporre. In fusione additiva e' la SOVRAPPOSIZIONE che fa la
+        // luce: qui sta la differenza con le particelle di TouchDesigner, che
+        // sono geometria vera e coprono piu' pixel ciascuna.
+        //
+        // Dichiarandolo false, size e' in pixel e lo diciamo apposta. Va
+        // moltiplicato per il pixel ratio, altrimenti su uno schermo Retina le
+        // particelle coprirebbero meta' della superficie che coprono sul
+        // proiettore, e l'opera sarebbe piu' spenta proprio dove si lavora.
         const mat = new THREE.PointsMaterial({
-            size: 0.021,
+            size: daIndirizzo('particelle', DIMENSIONE_PARTICELLA) * this._renderer.getPixelRatio(),
             vertexColors: true,
             blending: THREE.AdditiveBlending,
             depthTest: false,
             depthWrite: false,
             transparent: true,
-            sizeAttenuation: true,
+            sizeAttenuation: false,
         });
+        this._mat = mat;
 
         const points = new THREE.Points(this._geo, mat);
         this._scene.add(points);
@@ -91,6 +145,11 @@ export class RendererParticelle {
         this._post.render(tempo);
     }
 
+    /** Il colore dell'alone di sfondo, che segue la tinta della sessione. */
+    sfondo(rgb) {
+        if (this._post) this._post.setSfondo(rgb);
+    }
+
     buio() {
         this._post.luminosita = 0;
         this._t_accendi = null;
@@ -107,6 +166,11 @@ export class RendererParticelle {
         const h = window.innerHeight;
         this._renderer.setSize(w, h);
         this._post.setSize(w, h);
+        // spostando la finestra fra il portatile e il proiettore il pixel
+        // ratio cambia: senza questo, le particelle cambierebbero dimensione
+        if (this._mat) {
+            this._mat.size = daIndirizzo('particelle', DIMENSIONE_PARTICELLA) * this._renderer.getPixelRatio();
+        }
         const hw = larghezzaMondo() / 2;
         const hh = altezzaMondo() / 2;
         this._camera.left   = -hw;

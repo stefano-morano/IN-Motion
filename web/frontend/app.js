@@ -52,14 +52,28 @@ const stato = document.getElementById('stato');
 const ui    = document.getElementById('ui');
 
 // ------------------------------------------------------------------ audio
+// ------------------------------------------------------------------ il tappeto
+// Allineati a visuals/musica.py. Il motore musicale genererebbe direttamente
+// una versione cosi' (bastano polifonia e intensita' ritmica piu' basse), ma
+// qui la libreria e' gia' resa: si lavora sull'audio.
+const RALLENTAMENTO = 0.40;
+const TAGLIO_ALTE = 2600.0;
+
 class AudioManager {
     constructor() {
         this.ctx = null;
         this._masterVolume = 1;
         this._muted = false;
         this._sorgenti = {
-            principale: { node: null, gainVol: null, gainAtt: null, volume: 0 },
-            tappeto:    { node: null, gainVol: null, gainAtt: null, volume: 0 },
+            // Tre guadagni per sorgente, non uno: si moltiplicano fra loro e
+            // rispondono a tre domande diverse.
+            //   gainVol   quanto forte va in questa scena?      (macchina a stati)
+            //   gainAtt   quanto la abbasso per la campana?     (stacco)
+            //   gainVoce  quanto la abbasso perche' si parla?   (voce)
+            // Con un numero solo si sovrascriverebbero a vicenda: lo stacco
+            // riporterebbe su una musica che la voce voleva bassa.
+            principale: { node: null, gainVol: null, gainAtt: null, gainVoce: null, volume: 0 },
+            tappeto:    { node: null, gainVol: null, gainAtt: null, gainVoce: null, volume: 0 },
         };
         this._cache = new Map();
         this._recorder = null;
@@ -109,6 +123,60 @@ class AudioManager {
         return buf;
     }
 
+    /**
+     * Quanti attacchi al secondo ha una traccia.
+     *
+     * E' un descrittore audio, la porta di visuals/musica.py: si divide il
+     * segnale in finestre da 20 ms, si misura l'energia di ciascuna, e si
+     * contano i SALTI di energia che superano una frazione della media. Un
+     * salto e' una nota che entra.
+     */
+    _densitaAttacchi(buf) {
+        const sr = buf.sampleRate;
+        const ch = buf.getChannelData(0);
+        const n = Math.floor(sr * 0.02);
+        const finestre = Math.floor(ch.length / n);
+        if (finestre < 2) return 0;
+        const energia = new Float32Array(finestre);
+        let somma = 0;
+        for (let i = 0; i < finestre; i++) {
+            let acc = 0;
+            for (let j = 0; j < n; j++) { const v = ch[i * n + j]; acc += v * v; }
+            energia[i] = Math.sqrt(acc / n);
+            somma += energia[i];
+        }
+        const soglia = (somma / finestre) * 0.35;
+        let attacchi = 0;
+        for (let i = 1; i < finestre; i++) {
+            if (energia[i] - energia[i - 1] > soglia) attacchi++;
+        }
+        return attacchi / (ch.length / sr);
+    }
+
+    /**
+     * Fra le quattro variazioni del quadrante, quella con MENO attacchi.
+     *
+     * Sotto le scritte deve stare la piu' silenziosa, non una a caso: fra le
+     * quattro la differenza e' piu' del doppio. Si sceglie una volta sola e si
+     * ricorda, perche' il tappeto si carica all'avvio e non cambia piu'.
+     */
+    async _piuRada(emozione) {
+        if (this._rade?.has(emozione)) return this._rade.get(emozione);
+        if (!this._rade) this._rade = new Map();
+        let scelta = null, minimo = Infinity;
+        for (let i = 0; i < 4; i++) {
+            const url = `/musica/${emozione}/${emozione}_${String(i).padStart(2, '0')}.wav`;
+            try {
+                const buf = await this._carica(url);
+                const d = this._densitaAttacchi(buf);
+                if (d < minimo) { minimo = d; scelta = buf; }
+            } catch (_) { /* variazione mancante: si passa oltre */ }
+        }
+        if (!scelta) throw new Error(`nessuna traccia per ${emozione}`);
+        this._rade.set(emozione, scelta);
+        return scelta;
+    }
+
     async handle(msg) {
         const { azione, sorgente: nome, emozione, fade, volume, durata, val } = msg;
         const s = this._sorgenti[nome];
@@ -117,19 +185,41 @@ class AudioManager {
         if (azione === 'play') {
             await this._ensure();
             this._stop(nome);
-            const idx = Math.floor(Math.random() * 4).toString().padStart(2, '0');
-            const url = `/musica/${emozione}/${emozione}_${idx}.wav`;
+            const morbido = !!msg.morbido;
             try {
-                const buf = await this._carica(url);
-                s.gainVol = this.ctx.createGain();
-                s.gainAtt = this.ctx.createGain();
+                const buf = morbido
+                    ? await this._piuRada(emozione)
+                    : await this._carica(`/musica/${emozione}/${emozione}_`
+                        + Math.floor(Math.random() * 4).toString().padStart(2, '0') + '.wav');
+                s.gainVol  = this.ctx.createGain();
+                s.gainAtt  = this.ctx.createGain();
+                s.gainVoce = this.ctx.createGain();
                 s.gainVol.gain.value = 0;
                 s.gainAtt.gain.value = 1;
-                s.gainVol.connect(s.gainAtt).connect(this._masterGain);
+                // se la voce sta gia' parlando, la sorgente che entra adesso
+                // entra gia' abbassata invece di coprirla
+                s.gainVoce.gain.value = this._voceInCorso ? this._voceAtt : 1;
+                s.gainVol.connect(s.gainAtt).connect(s.gainVoce).connect(this._masterGain);
                 s.node = this.ctx.createBufferSource();
                 s.node.buffer = buf;
                 s.node.loop = true;
-                s.node.connect(s.gainVol);
+                if (morbido) {
+                    // La voce del tappeto: piu' grave, piu' rada, con attacchi
+                    // piu' lenti. Non e' un time-stretch — velocita' e altezza
+                    // scendono INSIEME, ed e' proprio quello che serve: con una
+                    // sola operazione le note si abbassano, gli attacchi si
+                    // diradano nel tempo e i transienti si allungano.
+                    s.node.playbackRate.value = RALLENTAMENTO;
+                    // Poi si smorzano le alte, dove vive lo schiocco del
+                    // martelletto: senza, le note colpiscono invece di entrare.
+                    s.filtro = this.ctx.createBiquadFilter();
+                    s.filtro.type = 'lowpass';
+                    s.filtro.frequency.value = TAGLIO_ALTE;
+                    s.filtro.Q.value = 0.5;
+                    s.node.connect(s.filtro).connect(s.gainVol);
+                } else {
+                    s.node.connect(s.gainVol);
+                }
                 s.node.start();
                 s.volume = volume ?? 1;
                 const t = this.ctx.currentTime;
@@ -162,6 +252,59 @@ class AudioManager {
         }
     }
 
+    /**
+     * La guida legge una frase. La clip arriva gia' sintetizzata dalla cache
+     * del backend — la stessa che usa la versione desktop.
+     */
+    async voce(msg) {
+        await this._ensure();
+        this.zittisci();
+        this._voceAtt = msg.attenuazione ?? 0.35;
+        try {
+            const buf = await this._carica(msg.url);
+            const g = this.ctx.createGain();
+            g.gain.value = msg.volume ?? 0.75;
+            const n = this.ctx.createBufferSource();
+            n.buffer = buf;
+            n.connect(g).connect(this._masterGain);
+            n.onended = () => { if (this._voceNode === n) this._rialzaDopoVoce(); };
+            this._voceNode = n;
+            this._voceInCorso = true;
+            this._duckVoce(this._voceAtt, 0.25);
+            n.start();
+        } catch (e) {
+            console.warn('voce:', e);
+            this._rialzaDopoVoce();
+        }
+    }
+
+    /** Tronca la clip in corso: si fa prima di accendere il microfono. */
+    zittisci() {
+        if (this._voceNode) {
+            try { this._voceNode.stop(); } catch (_) {}
+            this._voceNode = null;
+        }
+        this._rialzaDopoVoce();
+    }
+
+    _rialzaDopoVoce() {
+        this._voceNode = null;
+        this._voceInCorso = false;
+        this._duckVoce(1, 0.5);
+    }
+
+    _duckVoce(valore, tempo) {
+        if (!this.ctx) return;
+        for (const nome of ['principale', 'tappeto']) {
+            const s = this._sorgenti[nome];
+            if (!s.gainVoce) continue;
+            const t = this.ctx.currentTime;
+            s.gainVoce.gain.cancelScheduledValues(t);
+            s.gainVoce.gain.setValueAtTime(s.gainVoce.gain.value, t);
+            s.gainVoce.gain.linearRampToValueAtTime(valore, t + tempo);
+        }
+    }
+
     stacco(chiusura, discesa, respiro, ritorno) {
         // Abbassa entrambe le sorgenti, suona la campanella, le rialza
         for (const nome of ['principale', 'tappeto']) {
@@ -189,29 +332,54 @@ class AudioManager {
         }
     }
 
+    // Le stesse parziali di visuals/campanella.py: rapporto, peso, e in quanti
+    // secondi svanisce. I rapporti sono quelli di una ciotola cantante — NON
+    // sono multipli interi, ed e' quell'irregolarita' che l'orecchio riconosce
+    // come "percosso" invece che "suonato". Le acute si spengono per prime,
+    // cosi' il suono comincia brillante e diventa scuro mentre svanisce: se
+    // svanissero tutte insieme si sentirebbe un accordo d'organo.
+    static get PARZIALI() {
+        return [[1.00, 1.00, 3.20], [2.71, 0.55, 1.80],
+                [5.18, 0.28, 1.00], [8.35, 0.12, 0.55]];
+    }
+
     _campana(chiusura, ritardo = 2.2) {
         if (!this.ctx) return;
-        // Frequenza fondamentale: la grave per chiusura, una quinta sopra per apertura
+        // Frequenza fondamentale: la grave per chiusura, una quinta sopra per
+        // apertura. La quinta giusta e' l'intervallo piu' consonante dopo
+        // l'ottava: con qualunque tonalita' del tappeto non litiga.
         const freq = chiusura ? 220 : 330;
-        // Tre parziali non armoniche
-        const parziali = [[1.0, 0.7], [2.71, 0.25], [5.18, 0.08]];
+        const BATTIMENTO = 0.9;   // Hz di scarto fra le due meta' di ogni parziale
+        const ATTACCO = 0.012;    // senza salita morbida si sentirebbe un click
         const t0 = this.ctx.currentTime + ritardo;
-        for (const [mult, amp] of parziali) {
-            const osc = this.ctx.createOscillator();
-            const gain = this.ctx.createGain();
-            osc.frequency.value = freq * mult;
-            osc.type = 'sine';
-            gain.gain.setValueAtTime(amp * 0.06, t0);
-            gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 3.5);
-            osc.connect(gain).connect(this.ctx.destination);
-            osc.start(t0);
-            osc.stop(t0 + 3.6);
+
+        for (const [mult, peso, decadimento] of AudioManager.PARZIALI) {
+            // Una ciotola non e' mai perfettamente simmetrica, quindi ogni modo
+            // di vibrazione si sdoppia in due frequenze vicinissime: le due onde
+            // vanno a tempo e poi in opposizione, e il volume ondeggia. E' quel
+            // respiro che fa sembrare il suono vivo invece che stampato.
+            const battito = BATTIMENTO * mult;
+            for (const scarto of [-battito / 2, battito / 2]) {
+                const osc  = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.value = freq * mult + scarto;
+                const picco = peso * 0.06 / 2;   // due oscillatori per parziale
+                gain.gain.setValueAtTime(0.0001, t0);
+                gain.gain.linearRampToValueAtTime(picco, t0 + ATTACCO);
+                gain.gain.exponentialRampToValueAtTime(0.0001, t0 + decadimento);
+                osc.connect(gain).connect(this.ctx.destination);
+                osc.start(t0);
+                osc.stop(t0 + decadimento + 0.1);
+            }
         }
     }
 
     _stop(nome) {
         const s = this._sorgenti[nome];
         if (s.node) { try { s.node.stop(); } catch (_) {} s.node = null; }
+        if (s.filtro) { try { s.filtro.disconnect(); } catch (_) {} s.filtro = null; }
+        s.gainVoce = null;
     }
 
     // ---- registrazione microfono ----
@@ -423,6 +591,14 @@ function connect() {
         } else if (tipo === 'prepara_mandala') {
             logica.prepara_mandala(msg.petali, msg.anelli, msg.tonalita, msg.seed, msg.emozione);
 
+        } else if (tipo === 'tinta') {
+            // la tinta personale esiste da adesso; quanta se ne veda lo dice
+            // tinta_forza, che arriva fase per fase
+            logica.tinta(msg.tonalita, msg.emozione);
+
+        } else if (tipo === 'tinta_forza') {
+            logica.tintaForza(msg.valore, msg.durata);
+
         } else if (tipo === 'vai_a') {
             logica.vai_a(msg.scena, msg.testo, msg.durata);
             // Accende lo schermo al primo evento visivo (se ancora buio)
@@ -441,6 +617,10 @@ function connect() {
 
         } else if (tipo === 'musica') {
             await audio.handle(msg);
+
+        } else if (tipo === 'voce') {
+            if (msg.azione === 'di') await audio.voce(msg);
+            else audio.zittisci();
 
         } else if (tipo === 'stacco') {
             audio.stacco(msg.chiusura, msg.discesa, msg.respiro, msg.ritorno);
@@ -565,8 +745,9 @@ function loop(timestamp) {
 
     // Aggiorna la logica delle particelle e disegna
     if (logica && renderer) {
-        const { posizioni, colori } = logica.aggiorna(landmarks, ora);
+        const { posizioni, colori, sfondo } = logica.aggiorna(landmarks, ora);
         renderer.aggiorna(posizioni, colori);
+        renderer.sfondo(sfondo);
         renderer.render(ora);
     }
 }

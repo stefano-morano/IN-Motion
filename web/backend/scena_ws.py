@@ -29,6 +29,30 @@ class ScenaWS:
             "emozione": str(emozione or "Q2"),
         })
 
+    def tinta(self, tonalita, emozione="Q2"):
+        """La tinta personale, appena Claude ha risposto.
+
+        Il gemello di scena.py: li' e' un messaggio OSC, qui un evento in coda.
+        Il browser per ora lo IGNORA — il renderer JS ha ancora la sua copia
+        della logica di colore, dove la tinta arriva solo col mandala. Il
+        metodo deve esistere lo stesso, perche' esperienza.py e' condivisa fra
+        le due versioni e senza di lui la sessione web muore con un
+        AttributeError nell'istante in cui il modello risponde."""
+        self._coda.put({
+            "tipo": "tinta",
+            "tonalita": float(tonalita),
+            "emozione": str(emozione or "Q2"),
+        })
+
+    def tinta_forza(self, valore, durata=12.0):
+        """Quanta tinta personale si vede, da 0 (il blu) a 1, in 'durata'
+        secondi. Vedi tinta() per il perche' esiste anche qui."""
+        self._coda.put({
+            "tipo": "tinta_forza",
+            "valore": float(valore),
+            "durata": float(durata),
+        })
+
     def polvere(self, transizione=0.0):
         self._coda.put({"tipo": "vai_a", "scena": "polvere",
                         "testo": "", "durata": float(transizione)})

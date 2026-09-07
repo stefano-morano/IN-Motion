@@ -606,6 +606,14 @@
       margin-bottom: 0.85rem;
       font-size: 0.82rem;
     }
+    /* il pulsante del mandala e' un <a download>, non un <button>: senza
+       questo si siederebbe sulla linea di base invece di allinearsi agli altri */
+    #btn-mandala-scarica {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+    }
     #panel-risultati .btn-riga {
       margin-top: 0.5rem;
       position: sticky;
@@ -1109,6 +1117,12 @@
         <span id="risultati-testo"></span>
       </div>
       <div class="btn-riga">
+        <!-- Il mandala ad alta risoluzione: lo stesso disegno visto a schermo,
+             ridisegnato con 260.000 particelle invece di 13.664 perche' li'
+             non deve animarsi. Il file lo scrive gia' il backend a fine
+             meditazione; questo lo va solo a prendere. -->
+        <a class="btn-pannello secondario" id="btn-mandala-scarica"
+           href="/mandala/ultimo" download>Il tuo mandala</a>
         <button class="btn-pannello secondario" id="btn-calendario-apri">📅 Storico</button>
         <button class="btn-pannello" id="btn-chiudi-risultati">Continua →</button>
       </div>

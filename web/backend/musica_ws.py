@@ -14,6 +14,7 @@ class MusicaWS:
         self._coda = coda
         self._nome = nome
         self._emozione = None
+        self._morbido = False
         self._pronta = False
 
     def _put(self, evento: dict):
@@ -22,6 +23,11 @@ class MusicaWS:
     # ---------------------------------------------------------------- interfaccia musica.Music
     def carica(self, emozione, loop=True, morbido=False):
         self._emozione = emozione
+        # 'morbido' va RICORDATO, non solo ricevuto: il tappeto si carica qui e
+        # parte con parti(), che di morbido non sa niente. Restando False in
+        # parti(), il tappeto suonava la traccia Q4 cosi' com'e' — e sotto le
+        # scritte c'era piu' movimento di quanto dovesse.
+        self._morbido = bool(morbido)
         self._pronta = True
 
     def parti(self, fade=3.0, volume=1.0, curva=1.0):
@@ -30,7 +36,7 @@ class MusicaWS:
         self._put({
             "tipo": "musica", "sorgente": self._nome, "azione": "play",
             "emozione": self._emozione, "fade": float(fade),
-            "volume": float(volume), "morbido": False,
+            "volume": float(volume), "morbido": self._morbido,
             "curva": float(curva),
         })
 

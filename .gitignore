@@ -2,8 +2,13 @@
 __pycache__/
 *.pyc
 
-# chiavi API: non devono mai finire nel repository
+# chiavi API: non devono mai finire nel repository.
+# .env.esempio invece SI': elenca le variabili che servono, coi valori
+# vuoti. Senza, chi clona il progetto scopre che ne manca una solo
+# quando qualcosa smette di funzionare, e non sa nemmeno come si chiama.
 .env
+.env.*
+!.env.esempio
 *.key
 
 # i mandala generati sono il ricordo personale di chi ha meditato,

@@ -377,6 +377,16 @@ async def ws_handler(ws: WebSocket):
                 sincronia=stato,
             )
             esp_ref["esp"] = esp
+            # Come visuals/main.py: sintetizza le scritte fisse in sottofondo.
+            # Con voce_cache vuota, senza questo le clip non esistono e di() resta muto.
+            try:
+                esp.prepara_voce()
+            except Exception as exc:
+                print(f"voce: prepara fallita ({exc}) — si prosegue muti sulle scritte fisse")
+            try:
+                esp.prepara_tappeto()
+            except Exception as exc:
+                print(f"tappeto: prepara fallita ({exc})")
             esp.avvia(time.time())
             while not esp.finita and not stop_ev.is_set():
                 punti = _adatta_punti(stato.get_punti())

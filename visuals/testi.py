@@ -59,9 +59,22 @@ RISERVA = {
 # chiedere in una lingua e farsi rispondere in un'altra funziona, ma aggiunge
 # un passaggio dove non serve. I nomi dei campi restano italiani — sono
 # l'interfaccia con esperienza.py, non testo che qualcuno legge.
+#
+# Che il prompt sia in inglese NON BASTA pero' a garantire che lo sia la
+# risposta: se il racconto arriva in italiano il modello tende a rispondere in
+# italiano, e per un po' e' successo davvero. La lingua va quindi CHIESTA, ed
+# e' chiesta due volte — qui sotto e nella descrizione di ogni campo di testo.
 ISTRUZIONI = """You are the voice of a meditation installation. Someone has \
 just told you how they feel. From their words you draw the material of their \
 meditation.
+
+EVERYTHING YOU WRITE IS IN ENGLISH. Always, without exception. The person may \
+speak to you in any language — Italian more often than not, since the piece is \
+installed in Italy — and you still answer in English. Understand them in their \
+language, answer in ours. This is not a preference: the lettering, the voice \
+that reads it aloud and every fixed line of the piece are English, so a line \
+in another language is drawn in a typeface that has never been checked for it \
+and read out by a voice that does not speak it. It comes out wrong twice.
 
 You must produce:
 - two short lines, shown to them one after the other while they settle
@@ -116,9 +129,14 @@ true. In that case choose a simpler mandala and a quieter hue."""
 SCHEMA = {
     "type": "object",
     "properties": {
-        "frase_1": {"type": "string"},
-        "frase_2": {"type": "string"},
-        "concetto": {"type": "string"},
+        # La lingua e' ripetuta su ogni campo di testo, e non e' ridondanza:
+        # il modello legge la descrizione del campo nel momento in cui lo
+        # scrive, che e' molto dopo aver letto le istruzioni. Il caso che
+        # sbaglia e' proprio quello in cui il racconto arriva in italiano e
+        # tutto il contesto immediato e' in italiano tranne questa riga.
+        "frase_1": {"type": "string", "description": "in ENGLISH, always"},
+        "frase_2": {"type": "string", "description": "in ENGLISH, always"},
+        "concetto": {"type": "string", "description": "in ENGLISH, always"},
         "segnale_disagio": {
             "type": "boolean",
             "description": (

@@ -22,7 +22,6 @@ LIBRARY = os.path.join(CARTELLA, "musica_libreria")
 # la CPU e' satura per qualche secondo, e con blocchi piccoli il flusso resta
 # a secco: sono i click che si sentivano attorno a "preparo la tua meditazione".
 BLOCCO = 2048
-MOTORE = os.path.join(os.path.dirname(CARTELLA), "music")
 SAMPLE_RATE = 44100
 
 

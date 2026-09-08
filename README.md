@@ -6,6 +6,8 @@
 
 Interactive guided meditation experience with AI, particle visuals, and facial and voice recognition.
 
+Compatible with **Windows**, **macOS**, and **Linux**.
+
 <p align="center">
   <img src="web/assets/simbols/Screenshot.png" alt="IN-Motion screenshot" width="720">
 </p>
@@ -14,9 +16,10 @@ Interactive guided meditation experience with AI, particle visuals, and facial a
 
 ## Requirements
 
-- **macOS** 10.14 or later (recommended)
+- **Windows**, **macOS**, or **Linux**
 - **Python 3.10+** — [python.org/downloads](https://python.org/downloads)
 - Internet connection (first install and cloud APIs)
+- Modern browser with webcam and microphone access (Chrome / Edge / Firefox recommended)
 - **Anthropic** API key — [console.anthropic.com](https://console.anthropic.com)
 - **ElevenLabs** API key (voice) — [elevenlabs.io](https://elevenlabs.io)  
   Optional: **Firebase** for login and session history
@@ -38,8 +41,15 @@ ELEVENLABS_API_KEY=sk_...
 
 ### 2. Start
 
-**Double-click** `Lancia IN-Motion.command`  
-or from Terminal:
+Use the launcher for your OS (double-click or run from a terminal):
+
+| OS | Launcher |
+|---|---|
+| **macOS** | `MacOs.command` |
+| **Windows** | `Windows.bat` |
+| **Linux** | `Linux.sh` (`chmod +x Linux.sh` once if needed) |
+
+Or start the server manually:
 
 ```bash
 cd /path/to/IN-Motion/web/backend
@@ -47,12 +57,16 @@ python3 -m pip install -r requirements.txt   # first time only
 python3 -m uvicorn server:app --host 0.0.0.0 --port 8080
 ```
 
+On Windows you can use `python` instead of `python3` if that is how Python is installed.
+
 Then open **http://localhost:8080**.
 
 The first run downloads dependencies and the Whisper model (~500 MB).  
-Stop the server with **Ctrl+C**.
+Stop the server with **Ctrl+C** (or close the launcher window).
 
-> If macOS blocks the `.command` file: **System Settings → Privacy & Security → Open Anyway**.
+> **macOS:** if the system blocks `MacOs.command`, go to **System Settings → Privacy & Security → Open Anyway**.  
+> **Windows:** if SmartScreen warns, choose **More info → Run anyway**.  
+> **Linux:** grant execute permission with `chmod +x Linux.sh` if double-click does not run it.
 
 ---
 
@@ -87,8 +101,9 @@ Supporting stack: **NumPy**, **Pillow**, WAV music library in `visuals/musica_li
 
 | Issue | Fix |
 |---|---|
-| "Python 3 not found" | Install from [python.org/downloads](https://python.org/downloads) |
+| "Python 3 not found" | Install from [python.org/downloads](https://python.org/downloads) and ensure it is on `PATH` |
 | Browser does not open | Open `http://localhost:8080` manually |
 | No music | Check `visuals/musica_libreria/` for WAV files |
 | Microphone / webcam | Allow access in the browser |
 | Anthropic / ElevenLabs API error | Check keys in `.env` |
+| Linux script will not run | `chmod +x Linux.sh` then `./Linux.sh` |

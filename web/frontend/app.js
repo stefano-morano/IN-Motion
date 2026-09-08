@@ -1,5 +1,4 @@
 /**
- * app.js — browser-side orchestrator.
  *
  * Connects WebSocket, MediaPipe face tracking, Web Audio API
  * and the Three.js renderer in a single animation loop.

@@ -242,8 +242,16 @@ def _spiega(errore) -> str:
     codice = getattr(errore, "status_code", None)
     corpo = getattr(errore, "body", None)
     dettaglio = corpo.get("detail") if isinstance(corpo, dict) else None
-    stato = dettaglio.get("status") if isinstance(dettaglio, dict) else None
+    if isinstance(dettaglio, dict):
+        stato = dettaglio.get("status") or dettaglio.get("code")
+    else:
+        stato = None
 
+    # ElevenLabs often answers quota_exceeded with HTTP 401 (not 429). Check
+    # the body first so we do not blame the API key.
+    if stato == "quota_exceeded":
+        return ("quota esaurita: crediti ElevenLabs finiti per questo mese "
+                "(piano free ~10k caratteri). Aspetta il rinnovo o fai upgrade")
     # Il caso piu' insidioso, e non e' raro: la chiave e' giusta ma e' stata
     # creata "ristretta" e non ha gli scope accesi. Risponde 401 come una
     # chiave sbagliata, e si passa mezz'ora a rigenerarne di nuove — tutte

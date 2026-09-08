@@ -404,17 +404,23 @@ async def ws_handler(ws: WebSocket):
                 nome=(profilo_utente.get("nome") or "").strip() or None,
             )
             esp_ref["esp"] = esp
-            # Like visuals/main.py: synthesize fixed lines in the background.
-            # With an empty voce_cache, without this the clips do not exist and di() stays mute.
-            try:
-                esp.prepara_voce()
-            except Exception as exc:
-                print(f"voce: prepara fallita ({exc}) — si prosegue muti sulle scritte fisse")
+            # Bed music first: Start must not wait on voice synthesis.
+            # With a cold voce_cache, prepara_voce() can take many seconds
+            # and used to leave the session silent until it finished.
             try:
                 esp.prepara_tappeto()
             except Exception as exc:
                 print(f"tappeto: prepara fallita ({exc})")
             esp.avvia(time.time())
+
+            def _prepara_voce_bg():
+                try:
+                    esp.prepara_voce()
+                except Exception as exc:
+                    print(f"voce: prepara fallita ({exc}) — si prosegue muti sulle scritte fisse")
+
+            threading.Thread(target=_prepara_voce_bg, daemon=True).start()
+
             while not esp.finita and not stop_ev.is_set():
                 punti = _adapt_points(stato.get_punti())
                 esp.aggiorna(time.time(), punti, blink=stato.get_blink())

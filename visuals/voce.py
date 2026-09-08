@@ -89,12 +89,12 @@ LINGUA = os.environ.get("VOCE_LINGUA", "en").strip().lower()
 # ---------- chi parla ----------
 # La voce vera si sceglie con  python3 voci.py  , che la scrive in
 # voce_scelta.json. Questi sono solo i ripieghi: i nomi vengono cercati fra le
-# voci disponibili e si prende la prima che c'e'. Tutte femminili e giovani,
-# che e' il registro chiesto dal progetto.
+# voci disponibili e si prende la prima che c'e'. Charlie (male, EN) e' la
+# guida attuale; le altre restano come fallback se non e' sull'account.
 NOMI_PREFERITI = {
-    "en": ("Sarah", "Lily", "Jessica", "Alice", "Matilda", "Laura"),
-    "it": ("Alice", "Matilda", "Sarah", "Laura", "Lily", "Rachel"),
-}.get(LINGUA, ("Sarah", "Alice"))
+    "en": ("Charlie", "George", "Will", "Daniel", "Brian", "Adam"),
+    "it": ("Charlie", "George", "Will", "Adam", "Antoni"),
+}.get(LINGUA, ("Charlie", "George", "Will"))
 
 # Le due italiane di Polly. Beatrice esiste solo col motore generative, Bianca
 # anche con neural e standard: mettere Beatrice per prima significa chiedere
@@ -134,24 +134,24 @@ PCM_SR = 16000
 
 # Come deve suonare.
 #
-# VELOCITA 0.75 e' molto sotto il parlato normale, ed e' voluto: queste frasi
+# VELOCITA 0.70 e' molto sotto il parlato normale, ed e' voluto: queste frasi
 # non si ascoltano, si seguono. Chi le sente ha gli occhi chiusi e non ha
 # nessun appiglio visivo — alla velocita' di una conversazione le parole
 # arriverebbero prima che ci sia il tempo di posarle.
 #
-# STABILITA 0.75 non serve solo alla calma. Ogni frase e' sintetizzata IN UNA
-# CHIAMATA SEPARATA, e con la stabilita' bassa il modello interpreta ogni
-# clip per conto suo: due frasi che si susseguono a schermo verrebbero dette
-# con due intenzioni diverse, e si sentirebbe come un montaggio. Alta, la
-# voce resta la stessa persona per tutta la sessione.
+# STABILITA alta (0.88) tiene la guida calma e coerente fra una clip e
+# l'altra. Con Charlie (timbro piuttosto brillante) abbassa anche i picchi
+# "squillanti" dell'interpretazione.
 #
 # STILE resta a zero: e' l'enfasi interpretativa, e qui e' esattamente cio'
-# che non si vuole. SOMIGLIANZA a 0.80 tiene il timbro senza spingere —
-# oltre, il modello comincia a produrre artefatti sulle vocali lunghe.
-STABILITA = 0.75
-SOMIGLIANZA = 0.80
+# che non si vuole. SOMIGLIANZA un po' sotto 0.80 ammorbidisce il timbro
+# senza perdere la voce. SPEAKER_BOOST spento: altrimenti ElevenLabs spinge
+# le medie-alte e la guida suona troppo in avanti / acuta in cuffia.
+STABILITA = 0.88
+SOMIGLIANZA = 0.70
 STILE = 0.0
-VELOCITA = 0.75
+VELOCITA = 0.70
+SPEAKER_BOOST = False
 
 # --- Polly ---
 # Polly non ha una manopola "velocita'": si chiede in SSML, con <prosody>. Ma
@@ -163,7 +163,7 @@ POLLY_FORMATO = "mp3"
 POLLY_SR = "24000"       # il massimo che Polly da' in mp3
 POLLY_SR_PCM = "16000"   # il ripiego senza soundfile: pcm, mono, crudo
 
-VOLUME = 0.95        # la voce sta davanti: e' lei che guida
+VOLUME = 0.78        # guida presente ma non aggressiva in cuffia
 
 # Silenzio da togliere in testa e in coda alla clip. Il modello lascia sempre
 # un po' d'aria intorno alle parole, e sommata alla permanenza della scritta
@@ -460,7 +460,7 @@ class _ElevenLabs:
         irraggiungibili le clip gia' pagate. Polly si distingue da se',
         perche' le sue voci si chiamano 'Beatrice', non con un id esadecimale."""
         return (f"{self.voce_id}|{MODELLO}|{self.velocita}|{self.stabilita}"
-                f"|{SOMIGLIANZA}|{STILE}")
+                f"|{SOMIGLIANZA}|{STILE}|boost={int(SPEAKER_BOOST)}")
 
     def _prepara(self):
         chiave = os.environ.get("ELEVENLABS_API_KEY", "").strip()
@@ -511,7 +511,8 @@ class _ElevenLabs:
             from elevenlabs import VoiceSettings
             return VoiceSettings(
                 stability=self.stabilita, similarity_boost=SOMIGLIANZA,
-                style=STILE, use_speaker_boost=True, speed=self.velocita,
+                style=STILE, use_speaker_boost=SPEAKER_BOOST,
+                speed=self.velocita,
             )
         except Exception:
             return None   # si usano quelle di serie della voce

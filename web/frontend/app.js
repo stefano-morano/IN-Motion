@@ -1066,6 +1066,9 @@ async function _beginExperience() {
     if (testoEl) testoEl.textContent = '';
     statusEl.textContent = 'experience in progress';
     try { await audio._ensure(); } catch (_) {}
+    // Warm the calm bed (Q4) during the Start click so the first play
+    // command from the server does not wait on network decode.
+    audio._sparserTrack('Q4').catch(() => {});
 
     if (ws && ws.readyState === WebSocket.OPEN) {
         _sendStart();

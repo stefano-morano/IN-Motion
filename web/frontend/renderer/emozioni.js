@@ -83,9 +83,9 @@ export class EmotionAnalyzer {
         const mid = Math.floor(n / 2);
         const vStart = this._samples.slice(0, mid).reduce((s, c) => s + c.valenza, 0) / mid;
         const vEnd   = this._samples.slice(mid).reduce((s, c) => s + c.valenza, 0) / (n - mid);
-        let arc = 'stabile';
-        if (vEnd - vStart >  0.15) arc = 'miglioramento';
-        if (vStart - vEnd >  0.15) arc = 'peggioramento';
+        let arc = 'stable';
+        if (vEnd - vStart >  0.15) arc = 'improvement';
+        if (vStart - vEnd >  0.15) arc = 'worsening';
 
         const fmt = (v) => parseFloat(v.toFixed(3));
         return {

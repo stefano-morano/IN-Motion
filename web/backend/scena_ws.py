@@ -1,7 +1,7 @@
 """
 ScenaWS — web version of scena.py.
 
-Instead of sending OSC messages to TouchDesigner, it puts JSON events
+It puts JSON events
 on a queue that the WebSocket handler reads and sends to the browser.
 """
 import queue as _q
@@ -30,14 +30,7 @@ class ScenaWS:
         })
 
     def tinta(self, tonalita, emozione="Q2"):
-        """The personal tint, as soon as Claude has answered.
-
-        Twin of scena.py: there it is an OSC message, here a queued event.
-        The browser currently IGNORES it — the JS renderer still has its own
-        copy of the color logic, where the tint arrives only with the mandala.
-        The method must exist anyway, because esperienza.py is shared between
-        both versions and without it the web session dies with an
-        AttributeError the instant the model responds."""
+        
         self._coda.put({
             "tipo": "tinta",
             "tonalita": float(tonalita),

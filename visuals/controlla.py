@@ -15,17 +15,14 @@ programma non vede nulla.
 
 import importlib
 import os
-import subprocess
 import sys
 
 CARTELLA = os.path.dirname(os.path.abspath(__file__))
 
 # modulo da importare -> (nome del pacchetto da installare, a cosa serve)
 PACCHETTI = {
-    "mediapipe": ("mediapipe", "riconoscere il volto"),
     "cv2": ("opencv-python", "leggere la webcam"),
     "numpy": ("numpy", "calcolare le posizioni delle particelle"),
-    "pythonosc": ("python-osc", "parlare con TouchDesigner"),
     "anthropic": ("anthropic", "generare le frasi"),
     "faster_whisper": ("faster-whisper", "trascrivere la voce"),
     "sounddevice": ("sounddevice", "registrare dal microfono"),
@@ -33,9 +30,7 @@ PACCHETTI = {
 }
 
 FILE_NECESSARI = {
-    "face_landmarker.task": "il modello che riconosce il volto",
     "face_triangoli.txt": "la maglia di triangoli del viso",
-    "visual_TD.toe": "il progetto TouchDesigner",
 }
 
 esiti = []
@@ -222,27 +217,6 @@ def controlla_voce():
     )
 
 
-def controlla_touchdesigner():
-    try:
-        elenco = subprocess.run(
-            ["pgrep", "-f", "MacOS/TouchDesigner"], capture_output=True, text=True, timeout=10
-        ).stdout.split()
-    except Exception:
-        elenco = []
-
-    if len(elenco) == 1:
-        esito(True, "TouchDesigner", "una sola istanza aperta, come dev'essere")
-    elif len(elenco) == 0:
-        esito(False, "TouchDesigner", "non e' aperto",
-              rimedio="apri visual_TD.toe e lascialo in PRIMO PIANO durante la sessione",
-              grave=False)
-    else:
-        esito(False, "TouchDesigner", f"{len(elenco)} istanze aperte",
-              rimedio=("Chiudile TUTTE e riapri solo visual_TD.toe.\n"
-                       "La prima istanza si prende le porte OSC e le altre non\n"
-                       "ricevono piu' nulla: i nodi vanno in errore e sembra tutto rotto."))
-
-
 def controlla_taratura():
     esito(True, "Soglia degli occhi", "da verificare a mano",
           rimedio="", grave=False)
@@ -261,7 +235,6 @@ def main():
     controlla_modello_whisper()
     controlla_chiave()
     controlla_voce()
-    controlla_touchdesigner()
     controlla_taratura()
 
     gravi = [ok for ok, grave in esiti if grave and not ok]
@@ -269,8 +242,7 @@ def main():
     if gravi:
         print(f"\n{len(gravi)} problemi da risolvere prima di provare il sistema.\n")
         return 1
-    print("\nTutto a posto. Puoi lanciare:")
-    print('  python3 main.py "oggi mi sento agitato"\n')
+    print("\nTutto a posto. Avvia la web app da MacOs.command, Windows.bat o Linux.sh.\n")
     return 0
 
 

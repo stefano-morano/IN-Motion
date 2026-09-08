@@ -75,10 +75,6 @@ _voce_stub = types.ModuleType("voce")
 _voce_stub.Voce = VoceWS
 sys.modules["voce"] = _voce_stub
 
-# esperienza.py does `import scena` at top level; that module talks to
-# TouchDesigner via python-osc. On the web we never need OSC — stub scena
-# with ScenaWS before importing esperienza so Windows/macOS/Linux web installs
-# do not require pythonosc.
 from scena_ws import ScenaWS                         # noqa: E402
 _scena_stub = types.ModuleType("scena")
 _scena_stub.Scena = ScenaWS
@@ -111,6 +107,10 @@ _ANTHROPIC = anthropic.Anthropic()   # reads ANTHROPIC_API_KEY from env
 _PROMPT_ANALISI = """\
 You are an expert in emotion psychology and nonverbal communication.
 
+IMPORTANT: write EVERY user-facing string in English only
+(emotion names, nuances, and interpretation), even if the user's story
+or profile is in another language.
+
 User profile:
 - Name: {nome}
 - Age: {eta}
@@ -133,10 +133,10 @@ Consider nuances such as irony, suppressed anger, masked sadness, ambivalence.
 
 Reply ONLY with a valid JSON object, no extra text:
 {{
-  "emozione_primaria": "main emotion name",
-  "sfumature": ["optional nuance 1", "optional nuance 2"],
+  "emozione_primaria": "main emotion name in English",
+  "sfumature": ["optional nuance 1 in English", "optional nuance 2 in English"],
   "intensita": 0.0,
-  "interpretazione": "brief analysis in 2-3 sentences personalized for {nome}"
+  "interpretazione": "brief analysis in 2-3 sentences in English, personalized for {nome}"
 }}
 """
 
@@ -174,7 +174,14 @@ Post-meditation facial data:
         arousal     = emozioni.get("arousal_medio",   0.0),
         duchenne    = emozioni.get("sorriso_genuino", 0.0),
         brow        = emozioni.get("tensione_brow",   0.0),
-        arco        = emozioni.get("arco_emotivo",    "unknown"),
+        arco        = {
+            "miglioramento": "improvement",
+            "peggioramento": "worsening",
+            "stabile": "stable",
+            "improvement": "improvement",
+            "worsening": "worsening",
+            "stable": "stable",
+        }.get(emozioni.get("arco_emotivo"), emozioni.get("arco_emotivo", "unknown")),
         n_campioni  = emozioni.get("n_campioni",       0),
     ) + contesto_post
 

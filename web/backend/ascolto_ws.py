@@ -25,7 +25,6 @@ threading.Thread(target=_carica_modello, daemon=True).start()
 
 
 class AscoltoWS:
-    """Duck-type compatible with ascolto.Ascolto."""
 
     def __init__(self, coda_out: queue.SimpleQueue, stato_sessione):
         self._coda_out = coda_out

@@ -1523,9 +1523,9 @@ function _explainMood(pre, post, seriePre, seriePost) {
     const d     = vPost - vPre;
     const parti = [];
 
-    if (pre?.arco_emotivo === 'miglioramento') {
+    if (pre?.arco_emotivo === 'improvement' || pre?.arco_emotivo === 'miglioramento') {
         parti.push('During meditation, your face tended toward more open states.');
-    } else if (pre?.arco_emotivo === 'peggioramento') {
+    } else if (pre?.arco_emotivo === 'worsening' || pre?.arco_emotivo === 'peggioramento') {
         parti.push('During meditation, your face moved through more closed or thoughtful moments: that can happen when emotions surface to be processed.');
     }
 
@@ -1601,8 +1601,16 @@ function _createChartsOnCanvas(ids, seriePre, seriePost) {
 
     Chart.defaults.color = 'rgba(255,255,255,0.45)';
 
-    const tickV = v => Number(v).toFixed(1);
-    const tickA = v => Number(v).toFixed(1);
+    const tickV = v => {
+        if (v <= -0.9) return 'negative';
+        if (v >= 0.9)  return 'positive';
+        return Number(v).toFixed(1);
+    };
+    const tickA = v => {
+        if (v <= 0.05) return 'calm';
+        if (v >= 0.95) return 'activated';
+        return Number(v).toFixed(1);
+    };
     const charts = [];
 
     if (ids.vPre)  charts.push(_makeLineChart(ids.vPre,  preV,  'rgba(120, 220, 160, 0.95)', 'rgba(120, 220, 160, 0.12)', -1, 1, tickV));
@@ -1647,13 +1655,13 @@ function _destroyCalendarCharts() {
 }
 
 function _sessionResultHtml(s, sid) {
-    const testi = (s.spiegazione_umore && s.spiegazione_energia)
-        ? { explainMood: s.spiegazione_umore, explainEnergy: s.spiegazione_energia }
-        : _resultsCopy(
-            s.emozioni_pre, s.emozioni_post,
-            s.serie_pre || { valenza: [], arousal: [] },
-            s.serie_post || { valenza: [], arousal: [] },
-        );
+    // Always rebuild captions from series so older Italian Firestore text
+    // is not shown in the calendar.
+    const testi = _resultsCopy(
+        s.emozioni_pre, s.emozioni_post,
+        s.serie_pre || { valenza: [], arousal: [] },
+        s.serie_post || { valenza: [], arousal: [] },
+    );
     const haSerie = (s.serie_pre?.valenza?.length || 0) + (s.serie_post?.valenza?.length || 0) >= 3;
     const dur = s.durata_minuti || '—';
 

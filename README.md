@@ -113,3 +113,12 @@ Supporting stack: **NumPy**, **Pillow**, WAV music library in `visuals/musica_li
 | Microphone / webcam | Allow access in the browser |
 | Anthropic / ElevenLabs API error | Check keys in `.env` |
 | Linux script will not run | `chmod +x Linux.sh` then `./Linux.sh` |
+
+---
+
+## Collaborators
+
+- Aldo Pinelli
+- Hamin Jand
+- Stefano Morano
+- Alessandro Cupini

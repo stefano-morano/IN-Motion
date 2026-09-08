@@ -4,7 +4,7 @@
   <img src="web/assets/logo%20white.png" alt="IN-Motion" width="280">
 </p>
 
-Interactive guided meditation experience with AI, particle visuals, and facial and voice recognition.
+Interactive guided meditation experience with AI, particle visuals, facial and voice recognition.
 
 Compatible with **Windows**, **macOS**, and **Linux**.
 

@@ -213,6 +213,9 @@ CODA_VOCE = 1.5         # respiro dopo l'ultima parola, prima di cambiare
                         # le parole rallentano ma le pause restano, il rapporto
                         # fra suono e silenzio si stringe — e il silenzio, qui,
                         # e' meta' del lavoro.
+# After the final reflection prompt the mic must open almost with the last
+# spoken word — LEGGIBILE + CODA_VOCE left a long dead silence after TTS.
+CODA_RIFLESSIONE = 0.35
 ATTENUAZIONE_VOCE = 0.35    # quanto scende la musica mentre la voce parla
 MAX_ATTESA_VOCE = 15.0      # oltre, si va avanti muti invece che aspettare
 
@@ -631,9 +634,17 @@ class Esperienza:
                 if self.sincronia is not None:
                     # Speak the reflection prompt first; opening the mic in the
                     # same frame used to cancel the scheduled TTS clip.
+                    # Wait only for TTS (+ short coda), not LEGGIBILE — otherwise
+                    # the mic opens seconds after the guide has already finished.
                     self._vai("riflessione_invito", ora)
                     self._mostra_blocco([INVITO_RIFLESSIONE], 0, ora,
-                                        transizione=TRANSIZIONE)
+                                        transizione=TRANSIZIONE,
+                                        permanenza=2.0,  # only if clip duration unknown
+                                        coda=CODA_RIFLESSIONE)
+                    # Warm up the mic while the prompt is spoken so recording
+                    # can start as soon as the clip ends.
+                    if self.ascolto:
+                        self.ascolto.apri()
                     ui_apri = getattr(self.scena, "ui_riflessione_apri", None)
                     if ui_apri:
                         ui_apri()
@@ -644,14 +655,13 @@ class Esperienza:
                                         permanenza=PERMANENZA_COMMIATO)
 
         elif self.stato == "riflessione_invito":
-            # Wait until the prompt has been shown/spoken, then open the mic.
+            # Wait until the prompt has been spoken, then start recording.
             # Do not zittisci here: cutting the clip early made guide + mic overlap
             # when the browser was still finishing playback.
             if ora - self._t_blocco >= self._durata_blocco:
                 self._voce_da_dire = None
                 self._vai("riflessione_ascolto", ora)
                 if self.ascolto:
-                    self.ascolto.apri()
                     self.ascolto.inizia()
 
         elif self.stato == "riflessione_ascolto":
@@ -735,7 +745,7 @@ class Esperienza:
         self.racconto = racconto or self.racconto
 
     def _mostra_blocco(self, blocchi, indice, ora, transizione=TRANSIZIONE,
-                       permanenza=LEGGIBILE):
+                       permanenza=LEGGIBILE, coda=CODA_VOCE):
         """Mostra un blocco di testo di una sequenza (SALUTO/INVITO/ATTESA) e
         ricorda quando e' iniziato, per sapere quando passare al successivo.
 
@@ -747,17 +757,18 @@ class Esperienza:
         self._indice_blocco = indice
         self._t_blocco = ora
         self.scena.mostra("testo", testo, transizione=transizione)
-        self._durata_blocco = transizione + self._permanenza(testo, permanenza)
+        self._durata_blocco = transizione + self._permanenza(
+            testo, permanenza, coda=coda)
         self._programma_voce(testo, ora + transizione)
 
-    def _permanenza(self, testo, base):
+    def _permanenza(self, testo, base, coda=CODA_VOCE):
         """Quanto la scritta resta a schermo DOPO essersi formata.
 
         Almeno il tempo di leggerla; di piu' se la voce ci mette di piu' a
         dirla. Se la clip non c'e' (niente chiave, niente rete, cache fredda)
         durata() vale zero e si ricade esattamente sui tempi di prima."""
         detta = self.voce.durata(testo)
-        return max(base, detta + CODA_VOCE) if detta else base
+        return max(base, detta + coda) if detta else base
 
     def _programma_voce(self, testo, quando):
         """Segna che questa frase va detta a quell'ora. Ci pensa aggiorna().

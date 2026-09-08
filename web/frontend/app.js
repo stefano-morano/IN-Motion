@@ -513,16 +513,31 @@ function _hideEndReflectionBtn() {
     el.classList.add('hidden');
 }
 
-/** Resolve when the guide clip is no longer playing (or after a short timeout). */
+/** Resolve as soon as the guide clip ends (or immediately if none is playing). */
 function _waitForGuideVoice(maxMs = 20000) {
+    if (!audio._voceInCorso) return Promise.resolve();
     const t0 = performance.now();
     return new Promise(resolve => {
+        let done = false;
+        const finish = () => {
+            if (done) return;
+            done = true;
+            resolve();
+        };
+        const node = audio._voceNode;
+        if (node) {
+            const prev = node.onended;
+            node.onended = ev => {
+                try { prev?.call(node, ev); } catch (_) {}
+                finish();
+            };
+        }
         const tick = () => {
             if (!audio._voceInCorso || performance.now() - t0 > maxMs) {
-                resolve();
+                finish();
                 return;
             }
-            setTimeout(tick, 80);
+            setTimeout(tick, 40);
         };
         tick();
     });
@@ -1697,11 +1712,6 @@ document.getElementById('btn-restart')?.addEventListener('click', () => {
     document.getElementById('ui-restart')?.classList.add('hidden');
     _restartFromStart();
 });
-document.getElementById('btn-calendar-open').addEventListener('click', () => {
-    document.getElementById('panel-results').classList.remove('visible');
-    openCalendar();
-});
-
 // ------------------------------------------------------------------ Calendar
 async function openCalendar() {
     if (_currentUser) {

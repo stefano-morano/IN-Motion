@@ -1,20 +1,10 @@
-"""
-AscoltoWS — versione web di ascolto.Ascolto.
-
-Il browser cattura l'audio con MediaRecorder e lo manda come messaggio
-binario WebSocket quando la registrazione finisce. Qui lo riceviamo,
-lo salviamo in un file temporaneo e lo trascriviamo con Whisper.
-
-Il modello Whisper viene caricato una volta sola al lancio del server
-(in un thread separato per non rallentare l'avvio).
-"""
 import os
 import queue
 import tempfile
 import threading
 import time
 
-# Pre-carica il modello al lancio, non alla prima sessione
+# Preload the model at launch, not on the first session
 _MODELLO = None
 _MODELLO_LOCK = threading.Lock()
 
@@ -35,7 +25,7 @@ threading.Thread(target=_carica_modello, daemon=True).start()
 
 
 class AscoltoWS:
-    """Duck-type compatibile con ascolto.Ascolto."""
+    """Duck-type compatible with ascolto.Ascolto."""
 
     def __init__(self, coda_out: queue.SimpleQueue, stato_sessione):
         self._coda_out = coda_out
@@ -45,18 +35,18 @@ class AscoltoWS:
 
     # ---------------------------------------------------------------- API
     def apri(self):
-        """Dice al browser di tenere pronto il microfono."""
+        """Tell the browser to keep the microphone ready."""
         self._coda_out.put({"tipo": "ascolto", "azione": "apri"})
 
     def inizia(self):
-        """Dice al browser di cominciare a registrare."""
+        """Tell the browser to start recording."""
         self.attivo = True
         self._testo = None
         self._stato.svuota_audio()
         self._coda_out.put({"tipo": "ascolto", "azione": "inizia"})
 
     def ferma(self):
-        """Dice al browser di fermarsi e mandare l'audio. Avvia la trascrizione."""
+        """Tell the browser to stop and send audio. Starts transcription."""
         if not self.attivo:
             return
         self.attivo = False
@@ -64,15 +54,15 @@ class AscoltoWS:
         threading.Thread(target=self._attendi_e_trascrivi, daemon=True).start()
 
     def risultato(self):
-        """Restituisce il testo trascritto, o None se ancora in lavorazione."""
+        """Return the transcribed text, or None if still processing."""
         return self._testo
 
     def chiudi(self):
         pass
 
-    # ---------------------------------------------------------------- interno
+    # ---------------------------------------------------------------- internal
     def _attendi_e_trascrivi(self):
-        """Aspetta l'audio dal browser, poi trascrive."""
+        """Wait for audio from the browser, then transcribe."""
         t0 = time.time()
         while time.time() - t0 < 20.0:
             dati = self._stato.consuma_audio()
@@ -94,7 +84,7 @@ class AscoltoWS:
 
         percorso = None
         try:
-            # Il browser manda WebM/Opus da MediaRecorder
+            # Browser sends WebM/Opus from MediaRecorder
             with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as f:
                 f.write(dati_bytes)
                 percorso = f.name

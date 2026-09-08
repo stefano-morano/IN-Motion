@@ -1,11 +1,11 @@
-import { TESTO_LARGHEZZA, TESTO_ALTEZZA, CAM_TX, CAM_TY } from './scena.js';
+import { TEXT_WIDTH, TEXT_HEIGHT, CAM_TX, CAM_TY } from './scena.js';
 
 /**
- * testo_canvas.js — campiona le posizioni di una scritta da Canvas 2D.
+ * testo_canvas.js — sample text glyph positions from a Canvas 2D.
  *
- * Equivalente del blocco `testo_top → _campiona_scritta()` in td_face_points.py:
- * disegna il testo su un canvas offscreen, legge i pixel accesi e ne restituisce
- * le coordinate nel sistema di riferimento 3D della scena.
+ * Equivalent of the `testo_top → _campiona_scritta()` block in td_face_points.py:
+ * draws text on an offscreen canvas, reads lit pixels, and returns their
+ * coordinates in the scene's 3D reference frame.
  */
 
 const CW = 800, CH = 300;
@@ -14,7 +14,7 @@ _canvas.width  = CW;
 _canvas.height = CH;
 const _ctx = _canvas.getContext('2d', { willReadFrequently: true });
 
-/** Trova il font più grande che fa stare le righe in larghezza CW-16. */
+/** Find the largest font size that fits the lines within width CW-16. */
 function _trovafont(righe) {
     let fs = 150;
     _ctx.font = `bold ${fs}px sans-serif`;
@@ -27,7 +27,7 @@ function _trovafont(righe) {
     return fs;
 }
 
-/** Spezza la frase in 2 righe bilanciate per parole. */
+/** Split the phrase into 2 word-balanced lines. */
 function _spezza(frase) {
     const p = frase.split(' ');
     const mid = Math.ceil(p.length / 2);
@@ -35,10 +35,10 @@ function _spezza(frase) {
 }
 
 /**
- * Restituisce un Float32Array[n*3] con le posizioni 3D dei pixel accesi
- * del testo, scalate per stare dentro TESTO_LARGHEZZA × TESTO_ALTEZZA.
+ * Returns a Float32Array[n*3] with 3D positions of lit text pixels,
+ * scaled to fit inside TEXT_WIDTH × TEXT_HEIGHT.
  */
-export function campionaTesto(frase, n, seme = 99) {
+export function sampleText(frase, n, seme = 99) {
     _ctx.clearRect(0, 0, CW, CH);
     _ctx.fillStyle = '#000';
     _ctx.fillRect(0, 0, CW, CH);
@@ -46,7 +46,7 @@ export function campionaTesto(frase, n, seme = 99) {
     _ctx.textAlign = 'center';
     _ctx.textBaseline = 'middle';
 
-    // Prima prova su riga singola; se il font scende sotto 55px → 2 righe
+    // Try a single line first; if font drops below 55px → 2 lines
     let fontSize = _trovafont([frase]);
     if (fontSize < 55 && frase.includes(' ')) {
         const [r1, r2] = _spezza(frase);
@@ -61,7 +61,7 @@ export function campionaTesto(frase, n, seme = 99) {
     const img  = _ctx.getImageData(0, 0, CW, CH);
     const data = img.data;
 
-    // Raccoglie pixel accesi con min/max inline
+    // Collect lit pixels with inline min/max
     const colonne = [];
     const righe   = [];
     let cMin = CW, cMax = 0, rMin = CH, rMax = 0;
@@ -75,18 +75,18 @@ export function campionaTesto(frase, n, seme = 99) {
         }
     }
     if (colonne.length === 0) {
-        console.warn('campionaTesto: nessun pixel per', frase);
+        console.warn('sampleText: no pixels for', frase);
         return null;
     }
 
     const scala = Math.min(
-        TESTO_LARGHEZZA / Math.max(cMax - cMin, 1),
-        TESTO_ALTEZZA   / Math.max(rMax - rMin, 1)
+        TEXT_WIDTH / Math.max(cMax - cMin, 1),
+        TEXT_HEIGHT   / Math.max(rMax - rMin, 1)
     );
     const cMed = (cMin + cMax) / 2;
     const rMed = (rMin + rMax) / 2;
 
-    // RNG con seme fisso per riproducibilità
+    // Fixed-seed RNG for reproducibility
     let state = (seme ^ 0x9e3779b9) >>> 0 || 1;
     const rnd = () => {
         let t = state ^ (state << 11);
@@ -98,11 +98,10 @@ export function campionaTesto(frase, n, seme = 99) {
     const pos  = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
         const idx = Math.floor(rnd() * pool);
-        // Y: canvas va giù, scena va su → segno invertito
+        // Y: canvas goes down, scene goes up → inverted sign
         pos[i * 3]     = CAM_TX + (colonne[idx] - cMed) * scala;
         pos[i * 3 + 1] = CAM_TY - (righe[idx]   - rMed) * scala;
         pos[i * 3 + 2] = 0.0;
     }
     return pos;
 }
-

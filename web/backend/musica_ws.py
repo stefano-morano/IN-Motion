@@ -1,12 +1,12 @@
 """
-MusicaWS — versione web di musica.Music.
+MusicaWS — web version of musica.Music.
 
-Mette comandi JSON in coda. Il browser li riceve e usa Web Audio API
-per suonare i file .wav dalla libreria pre-generata.
+Queues JSON commands. The browser receives them and uses the Web Audio API
+to play .wav files from the pre-generated library.
 """
 import queue as _q
 
-SAMPLE_RATE = 44100  # usato da esperienza.py per costruire stacco
+SAMPLE_RATE = 44100  # used by esperienza.py to build stacco
 
 
 class MusicaWS:
@@ -20,13 +20,13 @@ class MusicaWS:
     def _put(self, evento: dict):
         self._coda.put(evento)
 
-    # ---------------------------------------------------------------- interfaccia musica.Music
+    # ---------------------------------------------------------------- musica.Music interface
     def carica(self, emozione, loop=True, morbido=False):
         self._emozione = emozione
-        # 'morbido' va RICORDATO, non solo ricevuto: il tappeto si carica qui e
-        # parte con parti(), che di morbido non sa niente. Restando False in
-        # parti(), il tappeto suonava la traccia Q4 cosi' com'e' — e sotto le
-        # scritte c'era piu' movimento di quanto dovesse.
+        # 'morbido' must be REMEMBERED, not only received: the bed loads here and
+        # starts with parti(), which knows nothing about soft mode. Leaving it
+        # False in parti() made the bed play the Q4 track as-is — and under the
+        # text there was more movement than there should have been.
         self._morbido = bool(morbido)
         self._pronta = True
 
@@ -49,7 +49,7 @@ class MusicaWS:
         })
 
     def apri(self):
-        # Il browser non ha bisogno di pre-aprire il flusso audio
+        # The browser does not need to pre-open the audio stream
         pass
 
     @property
@@ -75,13 +75,13 @@ class MusicaWS:
     def stop(self):
         self.ferma()
 
-    # Chiamato da StaccoWS: moltiplicatore di volume (0 = silenzio, 1 = normale)
+    # Called by StaccoWS: volume multiplier (0 = silence, 1 = normal)
     def attenua(self, val, fade=0.0):
         self._put({
             "tipo": "musica", "sorgente": self._nome, "azione": "attenua",
             "val": float(val), "fade": float(fade),
         })
 
-    # Chiamato da stacco.Stacco (versione originale) — non raggiunto con StaccoWS
+    # Called by stacco.Stacco (original version) — not reached with StaccoWS
     def suona_campione(self, dati):
         pass

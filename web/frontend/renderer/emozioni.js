@@ -1,96 +1,91 @@
 /**
- * emozioni.js — analisi arousal/valence da MediaPipe face blend shapes.
+ * emotions.js — arousal/valence analysis from MediaPipe face blend shapes.
  *
- * Campiona le 52 blend shapes di FaceLandmarker ogni ~1s e calcola:
- *   valenza  : [-1 negativa … +1 positiva]  — sorriso vs cipiglio
- *   arousal  : [0 calmo … 1 attivato/teso]  — occhi sbarrati, mascella
+ * Samples the 52 FaceLandmarker blend shapes about once per second and computes:
+ *   valence : [-1 negative … +1 positive] — smile vs frown
+ *   arousal : [0 calm … 1 activated/tense] — wide eyes, jaw
  *
- * Produce un report() al termine dell'esperienza usato come contesto
- * aggiuntivo per l'analisi Claude di emozioni complesse.
+ * Produces a report() at the end of the experience used as extra context
+ * for Claude's complex-emotion analysis.
  */
 
-export class AnalizzatoreEmozioni {
+export class EmotionAnalyzer {
     constructor() {
-        this._campioni = [];
-        this._tUltimoRec = 0;
-        this._attivo = false;
+        this._samples = [];
+        this._lastSampleAt = 0;
+        this._active = false;
     }
 
-    inizia() {
-        this._campioni = [];
-        this._tUltimoRec = 0;
-        this._attivo = true;
+    start() {
+        this._samples = [];
+        this._lastSampleAt = 0;
+        this._active = true;
     }
 
-    ferma() { this._attivo = false; }
+    stop() { this._active = false; }
 
-    /** Serie temporali (1 campione/s) per i grafici di riepilogo. */
-    serie() {
+    /** Time series (1 sample/s) for summary charts. */
+    series() {
         return {
-            valenza: this._campioni.map(c => c.valenza),
-            arousal: this._campioni.map(c => c.arousal),
+            valenza: this._samples.map(c => c.valenza),
+            arousal: this._samples.map(c => c.arousal),
         };
     }
 
     /**
-     * Chiama ogni frame con result.faceBlendshapes[0].categories
-     * (array di {categoryName, score} da MediaPipe FaceLandmarker).
-     * Registra max 1 campione al secondo.
+     * Call every frame with result.faceBlendshapes[0].categories
+     * (array of {categoryName, score} from MediaPipe FaceLandmarker).
+     * Records at most one sample per second.
      */
-    aggiorna(blendshapes) {
-        if (!this._attivo || !blendshapes) return;
-        const ora = performance.now();
-        if (ora - this._tUltimoRec < 1000) return;   // 1 campione/s
-        this._tUltimoRec = ora;
+    update(blendshapes) {
+        if (!this._active || !blendshapes) return;
+        const now = performance.now();
+        if (now - this._lastSampleAt < 1000) return;
+        this._lastSampleAt = now;
 
-        // Estrai score per nome (robusto rispetto all'ordine)
         const m = {};
         for (const b of blendshapes) m[b.categoryName] = b.score;
-
         const get = (k) => m[k] ?? 0;
 
-        // --- indicatori ---
-        const sorriso   = (get('mouthSmileLeft') + get('mouthSmileRight')) / 2;
-        const duchenne  = (get('cheekSquintLeft') + get('cheekSquintRight')) / 2; // Duchenne
-        const cipiglio  = (get('mouthFrownLeft')  + get('mouthFrownRight'))  / 2;
-        const brow_down = (get('browDownLeft')     + get('browDownRight'))    / 2;
-        const brow_up   =  get('browInnerUp');
-        const occhi_w   = (get('eyeWideLeft')      + get('eyeWideRight'))     / 2;
-        const squint    = (get('eyeSquintLeft')    + get('eyeSquintRight'))   / 2;
-        const mascella  =  get('jawOpen');
-        const naso      = (get('noseSneerLeft')    + get('noseSneerRight'))   / 2;
+        const smile    = (get('mouthSmileLeft') + get('mouthSmileRight')) / 2;
+        const duchenne = (get('cheekSquintLeft') + get('cheekSquintRight')) / 2;
+        const frown    = (get('mouthFrownLeft')  + get('mouthFrownRight'))  / 2;
+        const browDown = (get('browDownLeft')     + get('browDownRight'))    / 2;
+        const browUp   =  get('browInnerUp');
+        const eyesWide = (get('eyeWideLeft')      + get('eyeWideRight'))     / 2;
+        const squint   = (get('eyeSquintLeft')    + get('eyeSquintRight'))   / 2;
+        const jaw      =  get('jawOpen');
+        const nose     = (get('noseSneerLeft')    + get('noseSneerRight'))   / 2;
 
-        // --- calcolo dimensioni ---
         const valenza = Math.max(-1, Math.min(1,
-            (sorriso * 1.2 + duchenne * 0.8) -
-            (cipiglio * 1.0 + brow_down * 0.7 + naso * 0.5)
+            (smile * 1.2 + duchenne * 0.8) -
+            (frown * 1.0 + browDown * 0.7 + nose * 0.5)
         ));
         const arousal = Math.min(1,
-            occhi_w * 0.35 + brow_up * 0.25 + mascella * 0.20 +
-            squint  * 0.15 + brow_down * 0.10
+            eyesWide * 0.35 + browUp * 0.25 + jaw * 0.20 +
+            squint  * 0.15 + browDown * 0.10
         );
 
-        this._campioni.push({ valenza, arousal, sorriso, duchenne, brow_down, mascella });
+        this._samples.push({ valenza, arousal, sorriso: smile, duchenne, brow_down: browDown, mascella: jaw });
     }
 
     /**
-     * Restituisce il riassunto della sessione.
-     * Null se non ci sono dati sufficienti.
+     * Session summary. Null if there is not enough data.
+     * Field names stay Italian for backend / Firestore compatibility.
      */
     report() {
-        const n = this._campioni.length;
+        const n = this._samples.length;
         if (n < 3) return null;
 
-        const avg = (f) => this._campioni.reduce((s, c) => s + c[f], 0) / n;
-        const max = (f) => Math.max(...this._campioni.map(c => c[f]));
+        const avg = (f) => this._samples.reduce((s, c) => s + c[f], 0) / n;
+        const max = (f) => Math.max(...this._samples.map(c => c[f]));
 
-        // Arco emotivo: confronta prima e seconda metà della sessione
-        const meta = Math.floor(n / 2);
-        const vInizio = this._campioni.slice(0, meta).reduce((s, c) => s + c.valenza, 0) / meta;
-        const vFine   = this._campioni.slice(meta).reduce((s, c) => s + c.valenza, 0) / (n - meta);
-        let arco = 'stabile';
-        if (vFine - vInizio >  0.15) arco = 'miglioramento';
-        if (vInizio - vFine >  0.15) arco = 'peggioramento';
+        const mid = Math.floor(n / 2);
+        const vStart = this._samples.slice(0, mid).reduce((s, c) => s + c.valenza, 0) / mid;
+        const vEnd   = this._samples.slice(mid).reduce((s, c) => s + c.valenza, 0) / (n - mid);
+        let arc = 'stabile';
+        if (vEnd - vStart >  0.15) arc = 'miglioramento';
+        if (vStart - vEnd >  0.15) arc = 'peggioramento';
 
         const fmt = (v) => parseFloat(v.toFixed(3));
         return {
@@ -100,7 +95,7 @@ export class AnalizzatoreEmozioni {
             tensione_brow:   fmt(avg('brow_down')),
             mascella_media:  fmt(avg('mascella')),
             picco_arousal:   fmt(max('arousal')),
-            arco_emotivo:    arco,
+            arco_emotivo:    arc,
             n_campioni:      n,
         };
     }

@@ -1,21 +1,22 @@
 """
-VoceWS — la guida vocale, sul web.
+VoceWS — the spoken guide, on the web.
 
-Non e' piu' uno stub muto. Riusa per intero visuals/voce.py — stessa cache su
-disco, stessa scelta della voce, stessa firma — e cambia una cosa sola: invece
-di suonare la clip su un flusso audio locale, ne manda l'indirizzo al browser.
+No longer a silent stub. It reuses visuals/voce.py entirely — same on-disk
+cache, same voice selection, same signature — and changes one thing only:
+instead of playing the clip on a local audio stream, it sends the URL to
+the browser.
 
-PERCHE' ERA MUTO E PERCHE' NON BASTAVA. Finche' VoceWS rispondeva 0.0 a
-durata(), non mancava solo la voce: spariva anche il RITMO dell'opera. In
-esperienza.py quanto una scritta resta a schermo e' il tempo che la voce
-impiega a dirla (vedi _permanenza), quindi senza clip ogni frase ricadeva sul
-minimo leggibile e l'esperienza sfrecciava. La voce non e' un ornamento sopra
-la sequenza: e' cio' che la detta.
+WHY IT WAS MUTE AND WHY THAT WASN'T ENOUGH. While VoceWS answered 0.0 from
+durata(), it wasn't only the voice that was missing: the RHYTHM of the piece
+disappeared too. In esperienza.py how long a line stays on screen is the time
+the voice takes to say it (see _permanenza), so without clips every phrase
+fell back to the minimum readable duration and the experience raced ahead.
+Voice is not ornament on top of the sequence: it is what paces it.
 
-LA CACHE FA IL GROSSO. Le scritte fisse sono gia' state sintetizzate una volta
-e stanno in visuals/voce_cache/. Qui non si risintetizza niente che ci sia
-gia', e le clip valgono per ENTRAMBE le versioni dell'opera: la stessa
-impronta, lo stesso file.
+THE CACHE DOES THE HEAVY LIFTING. Fixed lines have already been synthesized
+once and live in visuals/voce_cache/. Nothing already present is
+re-synthesized here, and the clips work for BOTH versions of the piece: the
+same fingerprint, the same file.
 """
 
 import queue as _q
@@ -24,19 +25,19 @@ import voce as _voce
 
 
 class VoceWS(_voce.Voce):
-    """Come Voce, ma il suono esce dal browser invece che dalla scheda audio.
+    """Like Voce, but sound comes from the browser instead of the audio card.
 
-    Si eredita invece di reimplementare perche' tutto quello che serve —
-    trovare la clip in cache, misurarne la durata, sintetizzare quelle che
-    mancano — non ha niente a che vedere con COME la si suona. Restano da
-    sostituire solo i metodi che toccano il flusso audio locale.
+    Inherit rather than reimplement because everything that matters —
+    finding the clip in cache, measuring its duration, synthesizing missing
+    ones — has nothing to do with HOW it is played. Only the methods that
+    touch the local audio stream need replacing.
     """
 
     def __init__(self, coda: _q.SimpleQueue, sorgenti_da_abbassare=(), **kw):
         super().__init__(sorgenti_da_abbassare=sorgenti_da_abbassare, **kw)
         self._coda = coda
 
-    # ---- il flusso audio locale non serve: suona il browser ----
+    # ---- local audio stream is unused: the browser plays ----
 
     def apri(self):
         return True
@@ -48,25 +49,25 @@ class VoceWS(_voce.Voce):
         pass
 
     def aggiorna(self, ora=None):
-        # Nella versione desktop qui si fa avanzare la coda delle clip. Sul web
-        # la coda ce l'ha il browser, che sa da solo quando una clip e' finita.
+        # On desktop this advances the clip queue. On the web the browser owns
+        # the queue and knows on its own when a clip has finished.
         pass
 
-    # ---- quello che cambia davvero ----
+    # ---- what actually changes ----
 
     def di(self, testo):
-        """Manda al browser la clip da dire, e risponde quanto durera'.
+        """Send the browser the clip to speak, and return how long it will last.
 
-        La durata la deve sapere anche il lato Python: e' quella che tiene la
-        scritta a schermo finche' non e' stata letta per intero.
+        Python needs the duration too: it is what keeps the line on screen
+        until it has been fully read.
         """
         percorso, _ = self._percorso(testo)
         if not percorso:
             return 0.0
         durata = self.durata(testo)
         if not durata:
-            # nessuna clip: si prosegue muti, esattamente come fa la versione
-            # desktop quando manca la chiave o la rete
+            # no clip: continue muted, exactly as the desktop version does
+            # when the key or the network is missing
             return 0.0
         import os
         self._coda.put({
@@ -74,17 +75,17 @@ class VoceWS(_voce.Voce):
             "azione": "di",
             "url": "/voce/" + os.path.basename(percorso),
             "durata": float(durata),
-            # quanto abbassare la musica mentre parla. E' un moltiplicatore
-            # SUO, separato da quello dello stacco: cosi' voce e stacco possono
-            # capitare insieme e ognuno arriva dove voleva.
+            # how much to duck the music while speaking. Its OWN multiplier,
+            # separate from the stacco one: so voice and stacco can overlap
+            # and each still ends up where it intended.
             "attenuazione": float(self.attenuazione),
             "volume": float(self.volume),
         })
         return durata
 
     def zittisci(self):
-        """Tronca la clip in corso. Lo si fa prima di accendere il microfono:
-        una frase ancora in bocca finirebbe nella registrazione."""
+        """Cut the clip in progress. Done before opening the mic:
+        a phrase still being spoken would end up in the recording."""
         self._coda.put({"tipo": "voce", "azione": "zittisci"})
 
     def stop(self):

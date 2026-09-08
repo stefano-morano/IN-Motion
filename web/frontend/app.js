@@ -1,22 +1,22 @@
 /**
- * app.js — orchestratore lato browser.
+ * app.js — browser-side orchestrator.
  *
- * Collega WebSocket, MediaPipe face tracking, Web Audio API
- * e il renderer Three.js in un unico ciclo di animazione.
+ * Connects WebSocket, MediaPipe face tracking, Web Audio API
+ * and the Three.js renderer in a single animation loop.
  */
 
 import { FaceLandmarker, FilesetResolver }
     from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
-import { RendererParticelle } from './renderer/particelle.js';
-import { LogicaParticelle }   from './renderer/logica.js';
-import { campionaTesto }      from './renderer/testo_canvas.js';
-import { AnalizzatoreEmozioni } from './renderer/emozioni.js';
-import { loginGoogle, logout, onAuth, salvaSessione, inizializza,
-         loginEmail, registraEmail, resetPassword,
-         caricaProfilo, salvaProfilo,
-         salvaSessioneGiornaliera, caricaSessioniCalendario } from './firebase.js';
+import { ParticleRenderer } from './renderer/particelle.js';
+import { ParticleLogic } from './renderer/logica.js';
+import { sampleText }      from './renderer/testo_canvas.js';
+import { EmotionAnalyzer } from './renderer/emozioni.js';
+import { loginGoogle, logout, onAuth, saveSession, initialize,
+         loginEmail, registerEmail, resetPassword,
+         loadProfile, saveProfile,
+         saveDailySession, loadCalendarSessions } from './firebase.js';
 
-// ------------------------------------------------------------------ stato globale
+// ------------------------------------------------------------------ global state
 let ws;
 let renderer;
 let logica;
@@ -24,38 +24,39 @@ let faceLandmarker;
 let video;
 let landmarks    = null;
 let blendshapes  = null;                       // MediaPipe face blend shapes
-let _utenteCorrente = null;
-let _tInizio        = null;
-let _testoSessione  = '';
-let _profiloUtente  = null;                    // dati profilo (nome, età, obiettivo…)
-const _analizzatore = new AnalizzatoreEmozioni();
+let _currentUser = null;
+let _startTime        = null;
+let _sessionText  = '';
+let _userProfile  = null;                    // profile data (name, age, goal…)
+const _analyzer = new EmotionAnalyzer();
 
-// Dati per grafici e storico
-let _emozionePre    = null;   // report facciale pre-meditazione
-let _seriePre       = { valenza: [], arousal: [] };
-let _seriePost      = { valenza: [], arousal: [] };
-let _durataSessione = 0;
-let _analizzatorePost = null; // analizzatore per la fase post
-let _tInizioPost    = false;  // true durante la riflessione post
-let _calSessioni    = {};     // { 'YYYY-MM-DD': [{...}] } per il calendario
-let _calMese        = new Date();
-let _calCharts      = [];       // istanze Chart.js nel dettaglio calendario
-let _sessioneIniziata = false;
-let _pendingInizia    = false;
-let _postMostrato     = false;
-let _esperienzaFinita = false;
-let _inRiflessione    = false;
-let _riflessioneCompletata = false;
+// Data for charts and history
+let _emotionPre    = null;   // facial report pre-meditation
+let _seriesPre       = { valenza: [], arousal: [] };
+let _seriesPost      = { valenza: [], arousal: [] };
+let _sessionDuration = 0;
+let _analyzerPost = null; // analyzer for the post phase
+let _postPhaseActive    = false;  // true during the post reflection
+let _calSessions    = {};     // { 'YYYY-MM-DD': [{...}] } for the calendar
+let _calMonth        = new Date();
+let _calCharts      = [];       // Chart.js instances in calendar detail
+let _sessionStarted = false;
+let _pendingStart    = false;
+let _postShown     = false;
+let _experienceDone = false;
+let _wsGeneration   = 0;   // bumps on intentional restart so stale onclose is ignored
+let _inReflection    = false;
+let _reflectionDone = false;
 
 const WS_URL = `ws://${location.host}/ws`;
-const stato = document.getElementById('stato');
+const statusEl = document.getElementById('status');
 const ui    = document.getElementById('ui');
 
 // ------------------------------------------------------------------ audio
-// ------------------------------------------------------------------ il tappeto
-// Allineati a visuals/musica.py. Il motore musicale genererebbe direttamente
-// una versione cosi' (bastano polifonia e intensita' ritmica piu' basse), ma
-// qui la libreria e' gia' resa: si lavora sull'audio.
+// ------------------------------------------------------------------ the bed
+// Aligned with visuals/musica.py. The music engine would generate a version
+// like this directly (lower polyphony and rhythmic intensity are enough), but
+// here the library is already rendered: we work on the audio.
 const RALLENTAMENTO = 0.40;
 const TAGLIO_ALTE = 2600.0;
 
@@ -65,13 +66,13 @@ class AudioManager {
         this._masterVolume = 1;
         this._muted = false;
         this._sorgenti = {
-            // Tre guadagni per sorgente, non uno: si moltiplicano fra loro e
-            // rispondono a tre domande diverse.
-            //   gainVol   quanto forte va in questa scena?      (macchina a stati)
-            //   gainAtt   quanto la abbasso per la campana?     (stacco)
-            //   gainVoce  quanto la abbasso perche' si parla?   (voce)
-            // Con un numero solo si sovrascriverebbero a vicenda: lo stacco
-            // riporterebbe su una musica che la voce voleva bassa.
+            // Three gains per source, not one: they multiply together and
+            // answer three different questions.
+            //   gainVol   how loud in this scene?               (state machine)
+            //   gainAtt   how much to duck for the bell?        (stacco)
+            //   gainVoce  how much to duck because someone speaks? (voice)
+            // With a single number they would overwrite each other: stacco
+            // would bring back up music that voice wanted low.
             principale: { node: null, gainVol: null, gainAtt: null, gainVoce: null, volume: 0 },
             tappeto:    { node: null, gainVol: null, gainAtt: null, gainVoce: null, volume: 0 },
         };
@@ -114,7 +115,7 @@ class AudioManager {
         return this._muted;
     }
 
-    async _carica(url) {
+    async _loadAudio(url) {
         if (this._cache.has(url)) return this._cache.get(url);
         const r   = await fetch(url);
         const arr = await r.arrayBuffer();
@@ -124,14 +125,14 @@ class AudioManager {
     }
 
     /**
-     * Quanti attacchi al secondo ha una traccia.
+     * How many attacks per second a track has.
      *
-     * E' un descrittore audio, la porta di visuals/musica.py: si divide il
-     * segnale in finestre da 20 ms, si misura l'energia di ciascuna, e si
-     * contano i SALTI di energia che superano una frazione della media. Un
-     * salto e' una nota che entra.
+     * An audio descriptor, the gateway of visuals/musica.py: the signal is
+     * split into 20 ms windows, each window's energy is measured, and energy
+     * JUMPS that exceed a fraction of the mean are counted. A jump is a note
+     * coming in.
      */
-    _densitaAttacchi(buf) {
+    _attackDensity(buf) {
         const sr = buf.sampleRate;
         const ch = buf.getChannelData(0);
         const n = Math.floor(sr * 0.02);
@@ -154,23 +155,23 @@ class AudioManager {
     }
 
     /**
-     * Fra le quattro variazioni del quadrante, quella con MENO attacchi.
+     * Among the four quadrant variations, the one with the FEWEST attacks.
      *
-     * Sotto le scritte deve stare la piu' silenziosa, non una a caso: fra le
-     * quattro la differenza e' piu' del doppio. Si sceglie una volta sola e si
-     * ricorda, perche' il tappeto si carica all'avvio e non cambia piu'.
+     * Under the text the quietest must sit, not a random one: among the four
+     * the difference is more than double. Chosen once and remembered, because
+     * the bed loads at startup and does not change again.
      */
-    async _piuRada(emozione) {
+    async _sparserTrack(emozione) {
         if (this._rade?.has(emozione)) return this._rade.get(emozione);
         if (!this._rade) this._rade = new Map();
         let scelta = null, minimo = Infinity;
         for (let i = 0; i < 4; i++) {
             const url = `/musica/${emozione}/${emozione}_${String(i).padStart(2, '0')}.wav`;
             try {
-                const buf = await this._carica(url);
-                const d = this._densitaAttacchi(buf);
+                const buf = await this._loadAudio(url);
+                const d = this._attackDensity(buf);
                 if (d < minimo) { minimo = d; scelta = buf; }
-            } catch (_) { /* variazione mancante: si passa oltre */ }
+            } catch (_) { /* missing variation: skip */ }
         }
         if (!scelta) throw new Error(`nessuna traccia per ${emozione}`);
         this._rade.set(emozione, scelta);
@@ -188,30 +189,29 @@ class AudioManager {
             const morbido = !!msg.morbido;
             try {
                 const buf = morbido
-                    ? await this._piuRada(emozione)
-                    : await this._carica(`/musica/${emozione}/${emozione}_`
+                    ? await this._sparserTrack(emozione)
+                    : await this._loadAudio(`/musica/${emozione}/${emozione}_`
                         + Math.floor(Math.random() * 4).toString().padStart(2, '0') + '.wav');
                 s.gainVol  = this.ctx.createGain();
                 s.gainAtt  = this.ctx.createGain();
                 s.gainVoce = this.ctx.createGain();
                 s.gainVol.gain.value = 0;
                 s.gainAtt.gain.value = 1;
-                // se la voce sta gia' parlando, la sorgente che entra adesso
-                // entra gia' abbassata invece di coprirla
+                // if voice is already speaking, the source that enters now
+                // enters already ducked instead of covering it
                 s.gainVoce.gain.value = this._voceInCorso ? this._voceAtt : 1;
                 s.gainVol.connect(s.gainAtt).connect(s.gainVoce).connect(this._masterGain);
                 s.node = this.ctx.createBufferSource();
                 s.node.buffer = buf;
                 s.node.loop = true;
                 if (morbido) {
-                    // La voce del tappeto: piu' grave, piu' rada, con attacchi
-                    // piu' lenti. Non e' un time-stretch — velocita' e altezza
-                    // scendono INSIEME, ed e' proprio quello che serve: con una
-                    // sola operazione le note si abbassano, gli attacchi si
-                    // diradano nel tempo e i transienti si allungano.
+                    // The bed's voice: lower, sparser, with slower attacks.
+                    // Not a time-stretch — speed and pitch drop TOGETHER, and
+                    // that is exactly what is needed: in one operation notes
+                    // go lower, attacks thin out in time and transients lengthen.
                     s.node.playbackRate.value = RALLENTAMENTO;
-                    // Poi si smorzano le alte, dove vive lo schiocco del
-                    // martelletto: senza, le note colpiscono invece di entrare.
+                    // Then the highs are softened, where the hammer click
+                    // lives: without that, notes strike instead of entering.
                     s.filtro = this.ctx.createBiquadFilter();
                     s.filtro.type = 'lowpass';
                     s.filtro.frequency.value = TAGLIO_ALTE;
@@ -253,47 +253,47 @@ class AudioManager {
     }
 
     /**
-     * La guida legge una frase. La clip arriva gia' sintetizzata dalla cache
-     * del backend — la stessa che usa la versione desktop.
+     * The guide reads a phrase. The clip arrives already synthesized from the
+     * backend cache — the same one the desktop version uses.
      */
     async voce(msg) {
         await this._ensure();
-        this.zittisci();
+        this.silence();
         this._voceAtt = msg.attenuazione ?? 0.35;
         try {
-            const buf = await this._carica(msg.url);
+            const buf = await this._loadAudio(msg.url);
             const g = this.ctx.createGain();
             g.gain.value = msg.volume ?? 0.75;
             const n = this.ctx.createBufferSource();
             n.buffer = buf;
             n.connect(g).connect(this._masterGain);
-            n.onended = () => { if (this._voceNode === n) this._rialzaDopoVoce(); };
+            n.onended = () => { if (this._voceNode === n) this._unduckAfterVoice(); };
             this._voceNode = n;
             this._voceInCorso = true;
-            this._duckVoce(this._voceAtt, 0.25);
+            this._duckForVoice(this._voceAtt, 0.25);
             n.start();
         } catch (e) {
             console.warn('voce:', e);
-            this._rialzaDopoVoce();
+            this._unduckAfterVoice();
         }
     }
 
-    /** Tronca la clip in corso: si fa prima di accendere il microfono. */
-    zittisci() {
+    /** Cut the clip in progress: done before opening the microphone. */
+    silence() {
         if (this._voceNode) {
             try { this._voceNode.stop(); } catch (_) {}
             this._voceNode = null;
         }
-        this._rialzaDopoVoce();
+        this._unduckAfterVoice();
     }
 
-    _rialzaDopoVoce() {
+    _unduckAfterVoice() {
         this._voceNode = null;
         this._voceInCorso = false;
-        this._duckVoce(1, 0.5);
+        this._duckForVoice(1, 0.5);
     }
 
-    _duckVoce(valore, tempo) {
+    _duckForVoice(valore, tempo) {
         if (!this.ctx) return;
         for (const nome of ['principale', 'tappeto']) {
             const s = this._sorgenti[nome];
@@ -306,7 +306,7 @@ class AudioManager {
     }
 
     stacco(chiusura, discesa, respiro, ritorno) {
-        // Abbassa entrambe le sorgenti, suona la campanella, le rialza
+        // Duck both sources, play the bell, bring them back up
         for (const nome of ['principale', 'tappeto']) {
             const s = this._sorgenti[nome];
             if (!s.gainAtt || !this.ctx) continue;
@@ -317,11 +317,11 @@ class AudioManager {
             s.gainAtt.gain.setValueAtTime(0, t + discesa + respiro);
             s.gainAtt.gain.linearRampToValueAtTime(1, t + discesa + respiro + ritorno);
         }
-        // Campana sintetizzata
+        // Synthesized bell
         this._campana(chiusura, discesa);
     }
 
-    staccoAnnulla() {
+    cancelCutaway() {
         for (const nome of ['principale', 'tappeto']) {
             const s = this._sorgenti[nome];
             if (!s.gainAtt || !this.ctx) continue;
@@ -332,12 +332,12 @@ class AudioManager {
         }
     }
 
-    // Le stesse parziali di visuals/campanella.py: rapporto, peso, e in quanti
-    // secondi svanisce. I rapporti sono quelli di una ciotola cantante — NON
-    // sono multipli interi, ed e' quell'irregolarita' che l'orecchio riconosce
-    // come "percosso" invece che "suonato". Le acute si spengono per prime,
-    // cosi' il suono comincia brillante e diventa scuro mentre svanisce: se
-    // svanissero tutte insieme si sentirebbe un accordo d'organo.
+    // Same partials as visuals/campanella.py: ratio, weight, and how many
+    // seconds until it fades. The ratios are those of a singing bowl — NOT
+    // integer multiples, and that irregularity is what the ear recognizes as
+    // "struck" rather than "played". High partials die first, so the sound
+    // starts bright and turns dark as it fades: if they all faded together
+    // you would hear an organ chord.
     static get PARZIALI() {
         return [[1.00, 1.00, 3.20], [2.71, 0.55, 1.80],
                 [5.18, 0.28, 1.00], [8.35, 0.12, 0.55]];
@@ -345,26 +345,26 @@ class AudioManager {
 
     _campana(chiusura, ritardo = 2.2) {
         if (!this.ctx) return;
-        // Frequenza fondamentale: la grave per chiusura, una quinta sopra per
-        // apertura. La quinta giusta e' l'intervallo piu' consonante dopo
-        // l'ottava: con qualunque tonalita' del tappeto non litiga.
+        // Fundamental frequency: the low one for closing, a fifth above for
+        // opening. The perfect fifth is the most consonant interval after
+        // the octave: it does not clash with any bed key.
         const freq = chiusura ? 220 : 330;
-        const BATTIMENTO = 0.9;   // Hz di scarto fra le due meta' di ogni parziale
-        const ATTACCO = 0.012;    // senza salita morbida si sentirebbe un click
+        const BATTIMENTO = 0.9;   // Hz offset between the two halves of each partial
+        const ATTACCO = 0.012;    // without a soft rise you would hear a click
         const t0 = this.ctx.currentTime + ritardo;
 
         for (const [mult, peso, decadimento] of AudioManager.PARZIALI) {
-            // Una ciotola non e' mai perfettamente simmetrica, quindi ogni modo
-            // di vibrazione si sdoppia in due frequenze vicinissime: le due onde
-            // vanno a tempo e poi in opposizione, e il volume ondeggia. E' quel
-            // respiro che fa sembrare il suono vivo invece che stampato.
+            // A bowl is never perfectly symmetrical, so each vibration mode
+            // splits into two nearly identical frequencies: the two waves go
+            // in phase then out of phase, and volume swells. That breath is
+            // what makes the sound feel alive instead of printed.
             const battito = BATTIMENTO * mult;
             for (const scarto of [-battito / 2, battito / 2]) {
                 const osc  = this.ctx.createOscillator();
                 const gain = this.ctx.createGain();
                 osc.type = 'sine';
                 osc.frequency.value = freq * mult + scarto;
-                const picco = peso * 0.06 / 2;   // due oscillatori per parziale
+                const picco = peso * 0.06 / 2;   // two oscillators per partial
                 gain.gain.setValueAtTime(0.0001, t0);
                 gain.gain.linearRampToValueAtTime(picco, t0 + ATTACCO);
                 gain.gain.exponentialRampToValueAtTime(0.0001, t0 + decadimento);
@@ -382,17 +382,17 @@ class AudioManager {
         s.gainVoce = null;
     }
 
-    // ---- registrazione microfono ----
-    async apriMicrofono() {
+    // ---- microphone recording ----
+    async openMic() {
         if (this._micStream) return;
         try {
             this._micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         } catch (e) {
-            console.warn('microfono non disponibile:', e);
+            console.warn('microphone unavailable:', e);
         }
     }
 
-    async inizia() {
+    async startRecording() {
         if (this._recorder?.state === 'recording') return;
         try {
             if (!this._micStream) {
@@ -406,21 +406,27 @@ class AudioManager {
             this._recorder = new MediaRecorder(stream, opts);
             this._recorder.ondataavailable = e => { if (e.data.size > 0) this._audioChunks.push(e.data); };
             this._recorder.onstop = () => {
-                const blob = new Blob(this._audioChunks, { type: 'audio/webm' });
+                if (!this._audioChunks.length) {
+                    console.warn('recording: no audio chunks');
+                    return;
+                }
+                const blob = new Blob(this._audioChunks, { type: this._recorder?.mimeType || 'audio/webm' });
                 blob.arrayBuffer().then(buf => {
                     if (ws && ws.readyState === WebSocket.OPEN) {
                         ws.send(buf);
                     }
                 });
             };
-            this._recorder.start();
+            // timeslice so Safari/Chrome flush chunks before stop
+            this._recorder.start(1000);
         } catch (e) {
-            console.warn('microfono non disponibile:', e);
+            console.warn('microphone unavailable:', e);
         }
     }
 
-    ferma() {
+    stopRecording() {
         if (this._recorder && this._recorder.state !== 'inactive') {
+            try { this._recorder.requestData(); } catch (_) {}
             this._recorder.stop();
         }
     }
@@ -428,122 +434,122 @@ class AudioManager {
 
 const audio = new AudioManager();
 
-// Trascrizione live durante la fase ascolto (occhi chiusi)
-let _ascoltoRec     = null;
-let _ascoltoAttivo  = false;
-let _ascoltoBase    = '';
-let _ascoltoMotivo  = null;   // 'racconto' | 'riflessione'
+// Live transcription during listening (eyes closed)
+let _listenRec     = null;
+let _listenActive  = false;
+let _listenBase    = '';
+let _listenReason  = null;   // 'racconto' | 'riflessione'
 
-function _iniziaAscoltoVisivo() {
-    if (_ascoltoAttivo) return;
-    _ascoltoAttivo = true;
-    _ascoltoBase   = '';
-    const testoEl  = document.getElementById('testo-sessione-testo');
+function _startVisualListening() {
+    if (_listenActive) return;
+    _listenActive = true;
+    _listenBase   = '';
+    const testoEl  = document.getElementById('session-text-body');
     if (testoEl) testoEl.textContent = '';
-    document.getElementById('testo-sessione')?.classList.add('visibile');
+    document.getElementById('session-text')?.classList.add('visible');
 
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return;
 
-    _ascoltoRec = new SR();
-    _ascoltoRec.lang = 'en-US';
-    _ascoltoRec.continuous = true;
-    _ascoltoRec.interimResults = true;
-    _ascoltoRec.onresult = ev => {
+    _listenRec = new SR();
+    _listenRec.lang = 'en-US';
+    _listenRec.continuous = true;
+    _listenRec.interimResults = true;
+    _listenRec.onresult = ev => {
         let interim = '';
         for (let i = ev.resultIndex; i < ev.results.length; i++) {
-            if (ev.results[i].isFinal) _ascoltoBase += ev.results[i][0].transcript;
+            if (ev.results[i].isFinal) _listenBase += ev.results[i][0].transcript;
             else interim = ev.results[i][0].transcript;
         }
-        if (testoEl) testoEl.textContent = (_ascoltoBase + interim).trim();
+        if (testoEl) testoEl.textContent = (_listenBase + interim).trim();
     };
-    _ascoltoRec.onend = () => {
-        if (_ascoltoAttivo) {
-            try { _ascoltoRec?.start(); } catch (_) {}
+    _listenRec.onend = () => {
+        if (_listenActive) {
+            try { _listenRec?.start(); } catch (_) {}
         }
     };
-    _ascoltoRec.onerror = () => { /* Whisper fa da backup */ };
+    _listenRec.onerror = () => { /* Whisper fa da backup */ };
 
-    try { _ascoltoRec.start(); } catch (_) {}
+    try { _listenRec.start(); } catch (_) {}
 }
 
-function _fermaAscoltoVisivo() {
-    _ascoltoAttivo = false;
-    if (_ascoltoRec) {
-        try { _ascoltoRec.stop(); } catch (_) {}
-        _ascoltoRec = null;
+function _stopVisualListening() {
+    _listenActive = false;
+    if (_listenRec) {
+        try { _listenRec.stop(); } catch (_) {}
+        _listenRec = null;
     }
-    return document.getElementById('testo-sessione-testo')?.textContent?.trim() || '';
+    return document.getElementById('session-text-body')?.textContent?.trim() || '';
 }
 
-async function _avviaAscolto() {
-    if (_ascoltoAttivo) return;
-    _iniziaAscoltoVisivo();
-    try { await audio.apriMicrofono(); } catch (_) {}
-    try { await audio.inizia(); } catch (e) {
+async function _beginListening() {
+    if (_listenActive) return;
+    _startVisualListening();
+    try { await audio.openMic(); } catch (_) {}
+    try { await audio.startRecording(); } catch (e) {
         console.warn('registrazione audio:', e);
     }
 }
 
-function _inviaInizia() {
+function _sendStart() {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({
         tipo:    'inizia',
-        profilo: _profiloUtente || {},
+        profilo: _userProfile || {},
     }));
 }
 
-function _mostraBtnFineRiflessione() {
-    const el = document.getElementById('ui-riflessione');
+function _showEndReflectionBtn() {
+    const el = document.getElementById('ui-reflection');
     if (!el) return;
-    el.classList.remove('nascosto');
-    el.classList.add('visibile');
+    el.classList.remove('hidden');
+    el.classList.add('visible');
 }
 
-function _nascondiBtnFineRiflessione() {
-    const el = document.getElementById('ui-riflessione');
+function _hideEndReflectionBtn() {
+    const el = document.getElementById('ui-reflection');
     if (!el) return;
-    el.classList.remove('visibile');
-    el.classList.add('nascosto');
+    el.classList.remove('visible');
+    el.classList.add('hidden');
 }
 
-function _apriRiflessioneInEsperienza() {
-    if (_inRiflessione) return;
-    _inRiflessione = true;
-    _riflessioneCompletata = false;
-    _postMostrato = true;
-    _ascoltoMotivo = 'riflessione';
+function _openInExperienceReflection() {
+    if (_inReflection) return;
+    _inReflection = true;
+    _reflectionDone = false;
+    _postShown = true;
+    _listenReason = 'riflessione';
 
-    _durataSessione = Math.round((Date.now() - _tInizio) / 1000 / 60);
-    _seriePre       = _analizzatore.serie();
-    _emozionePre    = _analizzatore.report();
-    _analizzatore.ferma();
-    _tInizio = null;
+    _sessionDuration = Math.round((Date.now() - _startTime) / 1000 / 60);
+    _seriesPre       = _analyzer.series();
+    _emotionPre    = _analyzer.report();
+    _analyzer.stop();
+    _startTime = null;
 
-    _analizzatorePost = new AnalizzatoreEmozioni();
-    _analizzatorePost.inizia();
-    _tInizioPost = true;
+    _analyzerPost = new EmotionAnalyzer();
+    _analyzerPost.start();
+    _postPhaseActive = true;
 
-    stato.textContent = 'come ti senti adesso?';
-    _mostraBtnFineRiflessione();
+    statusEl.textContent = 'how do you feel now?';
+    _showEndReflectionBtn();
 }
 
-async function _concludiRiflessione() {
-    if (!_inRiflessione || _riflessioneCompletata) return;
-    _riflessioneCompletata = true;
-    _nascondiBtnFineRiflessione();
-    const testo = _fermaAscoltoVisivo();
-    _ascoltoMotivo = null;
-    audio.ferma();
-    await _completaSessione(testo);
+async function _finishReflection() {
+    if (!_inReflection || _reflectionDone) return;
+    _reflectionDone = true;
+    _hideEndReflectionBtn();
+    const testo = _stopVisualListening();
+    _listenReason = null;
+    audio.stopRecording();
+    await _completeSession(testo);
 }
 
-function _nascondiOverlayEsperienza() {
-    document.getElementById('panel-risultati')?.classList.remove('visibile');
-    _nascondiBtnFineRiflessione();
-    _inRiflessione = false;
-    _riflessioneCompletata = false;
-    _ascoltoMotivo = null;
+function _hideExperienceOverlay() {
+    document.getElementById('panel-results')?.classList.remove('visible');
+    _hideEndReflectionBtn();
+    _inReflection = false;
+    _reflectionDone = false;
+    _listenReason = null;
 }
 
 // ------------------------------------------------------------------ WebSocket
@@ -551,19 +557,22 @@ function connect() {
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
         return;
     }
-    stato.textContent = 'connessione...';
+    statusEl.textContent = 'connecting...';
     ws = new WebSocket(WS_URL);
 
+    const gen = _wsGeneration;
     ws.onopen = () => {
-        stato.textContent = 'connesso';
-        if (_pendingInizia) {
-            _inviaInizia();
-            _pendingInizia = false;
+        if (gen !== _wsGeneration) return;
+        statusEl.textContent = 'connected';
+        if (_pendingStart) {
+            _sendStart();
+            _pendingStart = false;
         }
     };
 
     ws.onmessage = async (ev) => {
-        // I messaggi audio arrivano come Blob/ArrayBuffer, non JSON
+        if (gen !== _wsGeneration) return;
+        // Audio messages arrive as Blob/ArrayBuffer, not JSON
         if (typeof ev.data !== 'string') return;
 
         let msg;
@@ -574,84 +583,84 @@ function connect() {
         console.log('ws ←', tipo, msg.scena || msg.azione || '');
 
         if (tipo === 'pronto') {
-            if (!_sessioneIniziata) {
-                _resetUiIngresso();
-                ui.classList.remove('nascosto');
+            if (!_sessionStarted) {
+                _resetEntryUi();
+                ui.classList.remove('hidden');
             }
-            stato.textContent = 'pronto';
+            statusEl.textContent = 'ready';
 
-        } else if (!_sessioneIniziata) {
+        } else if (!_sessionStarted) {
             return;
 
         } else if (tipo === 'prepara') {
             const t0 = performance.now();
-            logica.prepara_testi(msg.frasi, (frase, n) => campionaTesto(frase, n));
+            logica.prepareTexts(msg.frasi, (frase, n) => sampleText(frase, n));
             console.log(`prepara: ${msg.frasi.length} scritte in ${(performance.now()-t0).toFixed(0)}ms`);
 
         } else if (tipo === 'prepara_mandala') {
-            logica.prepara_mandala(msg.petali, msg.anelli, msg.tonalita, msg.seed, msg.emozione);
+            logica.prepareMandala(msg.petali, msg.anelli, msg.tonalita, msg.seed, msg.emozione);
 
         } else if (tipo === 'tinta') {
-            // la tinta personale esiste da adesso; quanta se ne veda lo dice
-            // tinta_forza, che arriva fase per fase
+            // personal tint exists from now on; how much is visible is told by
+            // tinta_forza, which arrives phase by phase
             logica.tinta(msg.tonalita, msg.emozione);
 
         } else if (tipo === 'tinta_forza') {
             logica.tintaForza(msg.valore, msg.durata);
 
         } else if (tipo === 'vai_a') {
-            logica.vai_a(msg.scena, msg.testo, msg.durata);
-            // Accende lo schermo al primo evento visivo (se ancora buio)
+            logica.goTo(msg.scena, msg.testo, msg.durata);
+            // Light up the screen on the first visual event (if still dark)
             if (renderer && renderer._t_accendi === null && renderer._post) {
-                renderer.accendi(3.0, performance.now() / 1000);
+                renderer.lightsUp(3.0, performance.now() / 1000);
             }
 
         } else if (tipo === 'azzera') {
-            logica.azzera();
+            logica.reset();
 
         } else if (tipo === 'buio') {
-            renderer.buio();
+            renderer.lightsOut();
 
         } else if (tipo === 'accendi') {
-            renderer.accendi(msg.durata, performance.now() / 1000);
+            renderer.lightsUp(msg.durata, performance.now() / 1000);
 
         } else if (tipo === 'musica') {
             await audio.handle(msg);
 
         } else if (tipo === 'voce') {
             if (msg.azione === 'di') await audio.voce(msg);
-            else audio.zittisci();
+            else audio.silence();
 
         } else if (tipo === 'stacco') {
             audio.stacco(msg.chiusura, msg.discesa, msg.respiro, msg.ritorno);
 
         } else if (tipo === 'stacco_annulla') {
-            audio.staccoAnnulla();
+            audio.cancelCutaway();
 
         } else if (tipo === 'ascolto') {
             if (msg.azione === 'apri') {
-                await audio.apriMicrofono();
-            } else if (msg.azione === 'inizia') {
-                if (!_inRiflessione) _ascoltoMotivo = 'racconto';
-                await _avviaAscolto();
-            } else if (msg.azione === 'ferma') {
-                const motivo = _ascoltoMotivo || 'racconto';
-                const testo  = _fermaAscoltoVisivo();
-                _ascoltoMotivo = null;
-                audio.ferma();
+                await audio.openMic();
+            } else if (msg.azione === 'inizia' || msg.azione === 'start') {
+                if (!_inReflection) _listenReason = 'racconto';
+                await _beginListening();
+            } else if (msg.azione === 'ferma' || msg.azione === 'stop') {
+                const motivo = _listenReason || 'racconto';
+                const testo  = _stopVisualListening();
+                _listenReason = null;
+                audio.stopRecording();
                 if (motivo === 'riflessione') {
-                    if (!_riflessioneCompletata) {
-                        _riflessioneCompletata = true;
-                        _nascondiBtnFineRiflessione();
-                        await _completaSessione(testo);
+                    if (!_reflectionDone) {
+                        _reflectionDone = true;
+                        _hideEndReflectionBtn();
+                        await _completeSession(testo);
                     }
                 } else {
-                    _testoSessione = testo;
+                    _sessionText = testo;
                     if (testo && ws?.readyState === WebSocket.OPEN) {
                         ws.send(JSON.stringify({
                             tipo:    'racconto',
                             testo,
-                            profilo: _profiloUtente || {},
+                            profilo: _userProfile || {},
                         }));
                     }
                 }
@@ -659,31 +668,36 @@ function connect() {
 
         } else if (tipo === 'ui') {
             if (msg.fase === 'riflessione' && msg.azione === 'apri') {
-                _apriRiflessioneInEsperienza();
-                await _avviaAscolto();
+                _openInExperienceReflection();
+                await _beginListening();
             } else if (msg.fase === 'nascondi') {
-                _nascondiOverlayEsperienza();
+                _hideExperienceOverlay();
             }
 
         } else if (tipo === 'fine') {
-            _nascondiOverlayEsperienza();
-            _esperienzaFinita = true;
-            stato.textContent = 'a presto';
+            _hideExperienceOverlay();
+            _experienceDone = true;
+            statusEl.textContent = 'see you soon';
         }
     };
 
     ws.onclose = () => {
-        stato.textContent = 'disconnesso';
-        if (_sessioneIniziata && !_esperienzaFinita) {
-            setTimeout(connect, 2000);
+        if (gen !== _wsGeneration) return;
+        statusEl.textContent = 'disconnected';
+        if (_sessionStarted && !_experienceDone) {
+            setTimeout(() => {
+                if (gen === _wsGeneration) connect();
+            }, 2000);
         }
     };
-    ws.onerror = () => ws.close();
+    ws.onerror = () => {
+        if (gen === _wsGeneration) ws.close();
+    };
 }
 
 // ------------------------------------------------------------------ face tracking
 async function initFaceTracking() {
-    stato.textContent = 'carico MediaPipe...';
+    statusEl.textContent = 'loading MediaPipe...';
     const vision = await FilesetResolver.forVisionTasks(
         'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
     );
@@ -695,10 +709,10 @@ async function initFaceTracking() {
         },
         runningMode: 'VIDEO',
         numFaces: 1,
-        outputFaceBlendshapes: true,   // abilita le 52 blend shapes per analisi emotiva
+        outputFaceBlendshapes: true,   // enable the 52 blend shapes for emotion analysis
     });
 
-    // Webcam (nascosta: l'anteprima non serve, le coordinate sì)
+    // Webcam (hidden: preview unused, coordinates needed)
     video = document.getElementById('video');
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
@@ -708,137 +722,146 @@ async function initFaceTracking() {
     } catch (e) {
         console.warn('webcam non disponibile:', e);
     }
-    stato.textContent = 'pronto';
+    statusEl.textContent = 'ready';
 }
 
 // ------------------------------------------------------------------ loop
 let _lastSend = 0;
-const SEND_INTERVAL = 1 / 30; // 30fps verso il server
+const SEND_INTERVAL = 1 / 30; // 30fps to the server
 
 function loop(timestamp) {
     requestAnimationFrame(loop);
     const ora = timestamp / 1000;
 
-    // Aggiorna i landmark del viso
+    // Update face landmarks
     if (faceLandmarker && video && video.readyState >= 2) {
         try {
             const res = faceLandmarker.detectForVideo(video, timestamp);
             if (res.faceLandmarks.length > 0) {
                 landmarks = res.faceLandmarks[0];
-                // Salva blend shapes per l'analisi emotiva
+                // Save blend shapes for emotion analysis + eye blink
+                let blink = null;
                 if (res.faceBlendshapes?.length > 0) {
                     blendshapes = res.faceBlendshapes[0].categories;
-                    if (_tInizio)      _analizzatore.aggiorna(blendshapes);
-                    if (_tInizioPost)  _analizzatorePost?.aggiorna(blendshapes);
+                    if (_startTime)      _analyzer.update(blendshapes);
+                    if (_postPhaseActive)  _analyzerPost?.update(blendshapes);
+                    let L = 0, R = 0;
+                    for (const b of blendshapes) {
+                        if (b.categoryName === 'eyeBlinkLeft')  L = b.score;
+                        if (b.categoryName === 'eyeBlinkRight') R = b.score;
+                    }
+                    blink = (L + R) / 2;
                 }
-                // Manda al server ~30fps
+                // Send to server ~30fps
                 if (ws && ws.readyState === WebSocket.OPEN && ora - _lastSend > SEND_INTERVAL) {
                     _lastSend = ora;
-                    ws.send(JSON.stringify({
+                    const msg = {
                         tipo: 'frame',
                         punti: landmarks.map(p => [p.x, p.y, p.z]),
-                    }));
+                    };
+                    if (blink != null) msg.blink = blink;
+                    ws.send(JSON.stringify(msg));
                 }
             }
         } catch (_) {}
     }
 
-    // Aggiorna la logica delle particelle e disegna
+    // Update particle logic and draw
     if (logica && renderer) {
-        const { posizioni, colori, sfondo } = logica.aggiorna(landmarks, ora);
-        renderer.aggiorna(posizioni, colori);
-        renderer.sfondo(sfondo);
+        const { posizioni, colori, background } = logica.update(landmarks, ora);
+        renderer.update(posizioni, colori);
+        renderer.setBackground(background);
         renderer.render(ora);
     }
 }
 
-// ------------------------------------------------------------------ avvio
+// ------------------------------------------------------------------ startup
 async function init() {
     const canvas = document.getElementById('canvas');
 
-    renderer = new RendererParticelle(canvas);
-    logica   = new LogicaParticelle();
+    renderer = new ParticleRenderer(canvas);
+    logica   = new ParticleLogic();
     await logica.init();
 
     await initFaceTracking();
-    _mostraUiIngresso();
+    _showEntryUi();
 
     requestAnimationFrame(loop);
 }
 
-function _mostraUiIngresso() {
-    _resetUiIngresso();
-    ui.classList.remove('nascosto');
-    stato.textContent = 'pronto';
+function _showEntryUi() {
+    _resetEntryUi();
+    ui.classList.remove('hidden');
+    statusEl.textContent = 'ready';
 }
 
 // ------------------------------------------------------------------ Firebase auth
 const loginOverlay   = document.getElementById('login-overlay');
-const profiloOverlay = document.getElementById('profilo-overlay');
-const ctrlItemProfilo = document.getElementById('ctrl-item-profilo');
-const utenteNome     = document.getElementById('utente-nome');
-const utenteAvatar   = document.getElementById('utente-avatar');
-const utenteAvatarFallback = document.getElementById('utente-avatar-fallback');
-const loginErrore    = document.getElementById('login-errore');
+const profileOverlay = document.getElementById('profile-overlay');
+const ctrlItemProfile = document.getElementById('ctrl-item-profile');
+const userName     = document.getElementById('user-name');
+const userAvatar   = document.getElementById('user-avatar');
+const userAvatarFallback = document.getElementById('user-avatar-fallback');
+const loginError    = document.getElementById('login-error');
 const loginOk        = document.getElementById('login-ok');
-const utenteFlyout   = document.getElementById('utente-flyout');
+const userFlyout   = document.getElementById('user-flyout');
 const volumeFlyout   = document.getElementById('volume-flyout');
 
-// Inizializza Firebase (recupera config dal server) poi registra il listener auth
-const _firebaseConfigurato = await inizializza();
+// Initialize Firebase (config from server) then register the auth listener
+const _firebaseConfigured = await initialize();
 
 onAuth(async utente => {
-    _utenteCorrente = utente;
+    _currentUser = utente;
     if (utente) {
-        // Nascondi login overlay
-        loginOverlay.classList.add('nascosto');
-        utenteNome.textContent = utente.displayName || utente.email || '';
+        // Hide login overlay
+        loginOverlay.classList.add('hidden');
+        userName.textContent = utente.displayName || utente.email || '';
         if (utente.photoURL) {
-            utenteAvatar.src = utente.photoURL;
-            utenteAvatar.style.display = 'block';
-            if (utenteAvatarFallback) utenteAvatarFallback.style.display = 'none';
+            userAvatar.src = utente.photoURL;
+            userAvatar.style.display = 'block';
+            if (userAvatarFallback) userAvatarFallback.style.display = 'none';
         } else {
-            utenteAvatar.style.display = 'none';
-            if (utenteAvatarFallback) utenteAvatarFallback.style.display = 'block';
+            userAvatar.style.display = 'none';
+            if (userAvatarFallback) userAvatarFallback.style.display = 'block';
         }
-        ctrlItemProfilo?.classList.add('visibile');
+        ctrlItemProfile?.classList.add('visible');
 
-        // Controlla se il profilo esiste già su Firestore (primo accesso?)
-        try { _profiloUtente = await caricaProfilo(utente.uid); }
-        catch (_) { _profiloUtente = null; }
+        // Check whether the profile already exists on Firestore (first login?)
+        try { _userProfile = await loadProfile(utente.uid); }
+        catch (_) { _userProfile = null; }
 
-        if (!_profiloUtente) {
-            // Primo accesso: mostra il form profilo
-            profiloOverlay?.classList.add('visibile');
+        if (!_userProfile) {
+            // First login: show the profile form
+            profileOverlay?.classList.add('visible');
         } else {
-            // Profilo già esistente: avvia direttamente
-            profiloOverlay?.classList.remove('visibile');
+            // Profile already exists: continue
+            profileOverlay?.classList.remove('visible');
             if (!renderer) init();
         }
     } else {
-        // Non loggato
-        profiloOverlay?.classList.remove('visibile');
-        if (_firebaseConfigurato) {
-            loginOverlay.classList.remove('nascosto');
-            ctrlItemProfilo?.classList.remove('visibile');
+        // Not logged in
+        profileOverlay?.classList.remove('visible');
+        if (_firebaseConfigured) {
+            loginOverlay.classList.remove('hidden');
+            ctrlItemProfile?.classList.remove('visible');
         } else {
-            // Firebase non configurato: salta il login e avvia direttamente
-            loginOverlay.classList.add('nascosto');
+            // Firebase not configured: skip login and start directly
+            loginOverlay.classList.add('hidden');
             if (!renderer) init();
         }
     }
 });
 
 document.getElementById('btn-google').addEventListener('click', async () => {
-    if (loginErrore) loginErrore.textContent = '';
+    if (loginError) loginError.textContent = '';
     if (loginOk)     loginOk.textContent     = '';
-    // Sblocca AudioContext durante la user gesture del login
+    // Unlock AudioContext during the login user gesture
     try { await audio._ensure(); } catch (_) {}
     try {
         await loginGoogle();
     } catch (e) {
         console.warn('login error:', e);
-        loginErrore.textContent = _messaggioErrore(e);
+        loginError.textContent = _errorMessage(e);
     }
 });
 
@@ -846,273 +869,314 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
     await logout();
 });
 
-// ------------------------------------------------------------------ form email/password
-let _modalitaAuth   = 'accedi';   // 'accedi' | 'registrati'
+// ------------------------------------------------------------------ email/password form
+let _authMode   = 'sign-in';   // 'sign-in' | 'sign-up'
 
 // Tab switch
 document.querySelectorAll('.login-tab').forEach(tab => {
     tab.addEventListener('click', () => {
-        _modalitaAuth = tab.dataset.tab;
-        document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('attivo'));
-        tab.classList.add('attivo');
-        const isReg = _modalitaAuth === 'registrati';
-        document.getElementById('auth-conferma').style.display = isReg ? 'block' : 'none';
+        _authMode = tab.dataset.tab;
+        document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const isReg = _authMode === 'sign-up';
+        document.getElementById('auth-confirm').style.display = isReg ? 'block' : 'none';
         document.getElementById('link-reset').style.display    = isReg ? 'none'  : 'block';
-        document.getElementById('btn-submit-auth').textContent = isReg ? 'Registrati' : 'Accedi';
-        loginErrore.textContent = '';
+        document.getElementById('btn-submit-auth').textContent = isReg ? 'Sign up' : 'Sign in';
+        loginError.textContent = '';
         loginOk.textContent = '';
     });
 });
 
-// Submit (Accedi o Registrati)
+// Submit (Sign in or Sign up)
 document.getElementById('btn-submit-auth').addEventListener('click', async () => {
-    loginErrore.textContent = '';
+    loginError.textContent = '';
     loginOk.textContent = '';
     const email    = document.getElementById('auth-email').value.trim();
     const password = document.getElementById('auth-password').value;
-    const conferma = document.getElementById('auth-conferma').value;
+    const conferma = document.getElementById('auth-confirm').value;
 
-    if (!email || !password) { loginErrore.textContent = 'Inserisci email e password.'; return; }
+    if (!email || !password) { loginError.textContent = 'Enter email and password.'; return; }
 
-    // Sblocca AudioContext durante la user gesture del login
+    // Unlock AudioContext during the login user gesture
     try { await audio._ensure(); } catch (_) {}
 
     try {
-        if (_modalitaAuth === 'registrati') {
-            if (password !== conferma) { loginErrore.textContent = 'Le password non coincidono.'; return; }
-            if (password.length < 6)   { loginErrore.textContent = 'La password deve avere almeno 6 caratteri.'; return; }
-            await registraEmail(email, password);
+        if (_authMode === 'sign-up') {
+            if (password !== conferma) { loginError.textContent = 'Passwords do not match.'; return; }
+            if (password.length < 6)   { loginError.textContent = 'Password must be at least 6 characters.'; return; }
+            await registerEmail(email, password);
         } else {
             await loginEmail(email, password);
         }
     } catch (e) {
-        loginErrore.textContent = _messaggioErrore(e);
+        loginError.textContent = _errorMessage(e);
     }
 });
 
-// Password dimenticata
+// Forgot password
 document.getElementById('link-reset').addEventListener('click', async () => {
-    loginErrore.textContent = '';
+    loginError.textContent = '';
     loginOk.textContent = '';
     const email = document.getElementById('auth-email').value.trim();
-    if (!email) { loginErrore.textContent = 'Inserisci la tua email sopra.'; return; }
+    if (!email) { loginError.textContent = 'Enter your email above.'; return; }
     try {
         await resetPassword(email);
-        loginOk.textContent = 'Email di recupero inviata. Controlla la posta.';
+        loginOk.textContent = 'Recovery email sent. Check your inbox.';
     } catch (e) {
-        loginErrore.textContent = _messaggioErrore(e);
+        loginError.textContent = _errorMessage(e);
     }
 });
 
-// Invio con Enter nei campi
-['auth-email','auth-password','auth-conferma'].forEach(id => {
+// Submit with Enter in the fields
+['auth-email','auth-password','auth-confirm'].forEach(id => {
     document.getElementById(id)?.addEventListener('keydown', e => {
         if (e.key === 'Enter') document.getElementById('btn-submit-auth')?.click();
     });
 });
 
-/** Traduce i codici di errore Firebase in messaggi leggibili. */
-function _messaggioErrore(e) {
-    const m = { 'auth/invalid-email': 'Email non valida.',
-                'auth/user-not-found': 'Nessun account con questa email.',
-                'auth/wrong-password': 'Password errata.',
-                'auth/email-already-in-use': 'Email già registrata.',
-                'auth/weak-password': 'Password troppo debole (min. 6 caratteri).',
-                'auth/too-many-requests': 'Troppi tentativi. Riprova più tardi.',
+/** Map Firebase error codes to readable messages. */
+function _errorMessage(e) {
+    const m = { 'auth/invalid-email': 'Invalid email.',
+                'auth/user-not-found': 'No account with this email.',
+                'auth/wrong-password': 'Wrong password.',
+                'auth/email-already-in-use': 'Email already registered.',
+                'auth/weak-password': 'Password too weak (min. 6 characters).',
+                'auth/too-many-requests': 'Too many attempts. Try again later.',
                 'auth/popup-closed-by-user': '' };
-    return m[e.code] || e.message || 'Errore sconosciuto.';
+    return m[e.code] || e.message || 'Unknown error.';
 }
 
-// ------------------------------------------------------------------ form profilo (primo accesso)
-let _sessoSelezionato = '';
+// ------------------------------------------------------------------ profile form (first login)
+let _selectedGender = '';
 
-document.querySelectorAll('.sesso-btn').forEach(btn => {
+document.querySelectorAll('.gender-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-        document.querySelectorAll('.sesso-btn').forEach(b => b.classList.remove('selezionato'));
-        btn.classList.add('selezionato');
-        _sessoSelezionato = btn.dataset.val;
+        document.querySelectorAll('.gender-btn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        _selectedGender = btn.dataset.val;
     });
 });
 
-document.getElementById('btn-profilo-salva').addEventListener('click', async () => {
-    const profiloErrore = document.getElementById('profilo-errore');
-    profiloErrore.textContent = '';
+document.getElementById('btn-profile-save').addEventListener('click', async () => {
+    const profileError = document.getElementById('profile-error');
+    profileError.textContent = '';
 
-    const nome      = document.getElementById('profilo-nome').value.trim();
-    const cognome   = document.getElementById('profilo-cognome').value.trim();
-    const eta       = parseInt(document.getElementById('profilo-eta').value, 10);
-    const obiettivo = document.getElementById('profilo-obiettivo').value.trim();
+    const nome      = document.getElementById('profile-first-name').value.trim();
+    const cognome   = document.getElementById('profile-last-name').value.trim();
+    const eta       = parseInt(document.getElementById('profile-age').value, 10);
+    const obiettivo = document.getElementById('profile-goal').value.trim();
 
-    if (!nome)                  { profiloErrore.textContent = 'Inserisci il tuo nome.'; return; }
-    if (!_sessoSelezionato)     { profiloErrore.textContent = 'Seleziona il sesso.'; return; }
-    if (!eta || eta < 10 || eta > 120) { profiloErrore.textContent = 'Inserisci un\'età valida.'; return; }
-    if (!obiettivo)             { profiloErrore.textContent = 'Raccontaci cosa vuoi migliorare.'; return; }
+    if (!nome)                  { profileError.textContent = 'Enter your first name.'; return; }
+    if (!_selectedGender)     { profileError.textContent = 'Select your gender.'; return; }
+    if (!eta || eta < 10 || eta > 120) { profileError.textContent = 'Enter a valid age.'; return; }
+    if (!obiettivo)             { profileError.textContent = 'Tell us what you\'d like to improve.'; return; }
 
-    const profilo = { nome, cognome, eta, sesso: _sessoSelezionato, obiettivo };
+    // Field names kept for Firestore / backend compatibility
+    const profile = { nome, cognome, eta, sesso: _selectedGender, obiettivo };
 
-    // Salva su Firestore se disponibile
-    if (_utenteCorrente) await salvaProfilo(_utenteCorrente.uid, profilo);
-    _profiloUtente = profilo;
+    // Save to Firestore if available
+    if (_currentUser) await saveProfile(_currentUser.uid, profile);
+    _userProfile = profile;
 
-    // Sblocca AudioContext qui — il click del profilo È la user gesture
+    // Unlock AudioContext here — the profile click IS the user gesture
     try { await audio._ensure(); } catch (_) {}
 
-    // Nascondi il form e avvia l'esperienza
-    profiloOverlay.classList.remove('visibile');
+    // Hide the form and start the experience
+    profileOverlay.classList.remove('visible');
     if (!renderer) init();
 });
 
-// ------------------------------------------------------------------ UI ingresso (solo Inizia)
+// ------------------------------------------------------------------ entry UI (Start only)
 const uiStep1 = document.getElementById('ui-step1');
 
-function _resetUiIngresso() {
-    uiStep1?.classList.remove('nascosto');
-    _nascondiBtnFineRiflessione();
-    document.getElementById('testo-sessione')?.classList.remove('visibile');
-    const testoEl = document.getElementById('testo-sessione-testo');
+function _resetEntryUi() {
+    uiStep1?.classList.remove('hidden');
+    _hideEndReflectionBtn();
+    document.getElementById('session-text')?.classList.remove('visible');
+    const testoEl = document.getElementById('session-text-body');
     if (testoEl) testoEl.textContent = '';
 }
 
-document.getElementById('inizia').addEventListener('click', async () => {
-    _sessioneIniziata = true;
-    _postMostrato = false;
-    _esperienzaFinita = false;
-    _inRiflessione = false;
-    _riflessioneCompletata = false;
-    _seriePre  = { valenza: [], arousal: [] };
-    _seriePost = { valenza: [], arousal: [] };
-    _testoSessione = '';
-    _tInizio = Date.now();
-    _analizzatore.inizia();
-    ui.classList.add('nascosto');
-    stato.textContent = 'esperienza in corso';
+document.getElementById('start').addEventListener('click', async () => {
+    await _beginExperience();
+});
+
+document.getElementById('btn-end-reflection')?.addEventListener('click', () => {
+    _finishReflection();
+});
+
+/** Same path as pressing Start at the beginning of a session. */
+async function _beginExperience() {
+    _sessionStarted = true;
+    _postShown = false;
+    _experienceDone = false;
+    _inReflection = false;
+    _reflectionDone = false;
+    _seriesPre  = { valenza: [], arousal: [] };
+    _seriesPost = { valenza: [], arousal: [] };
+    _sessionText = '';
+    _startTime = Date.now();
+    _postPhaseActive = false;
+    _analyzerPost = null;
+    _analyzer.start();
+    ui.classList.add('hidden');
+    document.getElementById('session-text')?.classList.remove('visible');
+    const testoEl = document.getElementById('session-text-body');
+    if (testoEl) testoEl.textContent = '';
+    statusEl.textContent = 'experience in progress';
     try { await audio._ensure(); } catch (_) {}
 
     if (ws && ws.readyState === WebSocket.OPEN) {
-        _inviaInizia();
+        _sendStart();
     } else {
-        _pendingInizia = true;
+        _pendingStart = true;
         connect();
     }
-});
+}
 
-document.getElementById('btn-fine-riflessione')?.addEventListener('click', () => {
-    _concludiRiflessione();
-});
+/**
+ * Close the charts panel and start a new session from the same point as Start.
+ * Tears down the old WebSocket so the backend experience thread stops cleanly.
+ */
+async function _restartFromStart() {
+    document.getElementById('panel-results')?.classList.remove('visible');
+    _hideEndReflectionBtn();
+    _stopVisualListening();
+    audio.silence();
+    audio.stopRecording();
+    try { audio._stop('principale'); } catch (_) {}
+    try { audio._stop('tappeto'); } catch (_) {}
+    _destroyResultCharts();
 
-// ------------------------------------------------------------------ Flyout controlli sinistra
-const ctrlItemProfiloEl = document.getElementById('ctrl-item-profilo');
+    // Invalidate the old socket so its onclose cannot auto-reconnect or
+    // swallow the new session's start message.
+    _experienceDone = true;
+    _pendingStart = false;
+    _wsGeneration += 1;
+    if (ws) {
+        try { ws.close(); } catch (_) {}
+        ws = null;
+    }
+    if (logica) logica.reset();
+    if (renderer) renderer.lightsOut();
+
+    await new Promise(r => setTimeout(r, 200));
+    await _beginExperience();
+}
+
+// ------------------------------------------------------------------ Left control flyouts
+const ctrlItemProfileEl = document.getElementById('ctrl-item-profile');
 const ctrlItemVolumeEl  = document.getElementById('ctrl-item-volume');
 
-function _posizionaFlyout(btn, flyout) {
+function _positionFlyout(btn, flyout) {
     if (!btn || !flyout) return;
     const r = btn.getBoundingClientRect();
     flyout.style.left = `${Math.round(r.right + 7)}px`;
     flyout.style.top  = `${Math.round(r.top + r.height / 2)}px`;
 }
 
-function _chiudiFlyout(...els) {
-    for (const el of els) el?.classList.remove('aperto');
-    ctrlItemProfiloEl?.classList.remove('aperto');
-    ctrlItemVolumeEl?.classList.remove('aperto');
+function _closeFlyout(...els) {
+    for (const el of els) el?.classList.remove('open');
+    ctrlItemProfileEl?.classList.remove('open');
+    ctrlItemVolumeEl?.classList.remove('open');
 }
 function _toggleFlyout(el, btn, itemEl, altro = null) {
     if (!el) return false;
-    const apri = !el.classList.contains('aperto');
-    if (altro) _chiudiFlyout(altro);
-    el.classList.toggle('aperto', apri);
-    itemEl?.classList.toggle('aperto', apri);
-    if (apri) _posizionaFlyout(btn, el);
+    const apri = !el.classList.contains('open');
+    if (altro) _closeFlyout(altro);
+    el.classList.toggle('open', apri);
+    itemEl?.classList.toggle('open', apri);
+    if (apri) _positionFlyout(btn, el);
     return apri;
 }
 
-const btnProfiloToggle = document.getElementById('btn-profilo-toggle');
-btnProfiloToggle?.addEventListener('click', e => {
+const btnProfileToggle = document.getElementById('btn-profile-toggle');
+btnProfileToggle?.addEventListener('click', e => {
     e.stopPropagation();
-    const aperto = _toggleFlyout(utenteFlyout, btnProfiloToggle, ctrlItemProfiloEl, volumeFlyout);
-    btnProfiloToggle.setAttribute('aria-expanded', aperto ? 'true' : 'false');
+    const open = _toggleFlyout(userFlyout, btnProfileToggle, ctrlItemProfileEl, volumeFlyout);
+    btnProfileToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
 });
 
-// Pulsante volume + slider
+// Volume button + slider
 const volumeSlider = document.getElementById('volume-slider');
-const btnMuto = document.getElementById('btn-muto');
+const btnMute = document.getElementById('btn-mute');
 
-btnMuto?.addEventListener('click', async e => {
+btnMute?.addEventListener('click', async e => {
     e.stopPropagation();
     try { await audio._ensure(); } catch (_) {}
-    const aperto = _toggleFlyout(volumeFlyout, btnMuto, ctrlItemVolumeEl, utenteFlyout);
-    btnMuto.setAttribute('aria-expanded', aperto ? 'true' : 'false');
+    const open = _toggleFlyout(volumeFlyout, btnMute, ctrlItemVolumeEl, userFlyout);
+    btnMute.setAttribute('aria-expanded', open ? 'true' : 'false');
 });
 
 window.addEventListener('resize', () => {
-    if (utenteFlyout?.classList.contains('aperto')) _posizionaFlyout(btnProfiloToggle, utenteFlyout);
-    if (volumeFlyout?.classList.contains('aperto')) _posizionaFlyout(btnMuto, volumeFlyout);
+    if (userFlyout?.classList.contains('open')) _positionFlyout(btnProfileToggle, userFlyout);
+    if (volumeFlyout?.classList.contains('open')) _positionFlyout(btnMute, volumeFlyout);
 });
 
 volumeSlider?.addEventListener('input', async () => {
     try { await audio._ensure(); } catch (_) {}
     audio.setMasterVolume(Number(volumeSlider.value) / 100);
-    btnMuto?.classList.remove('attivo');
+    btnMute?.classList.remove('active');
 });
 
-btnMuto?.addEventListener('dblclick', async e => {
+btnMute?.addEventListener('dblclick', async e => {
     e.preventDefault();
     e.stopPropagation();
     try { await audio._ensure(); } catch (_) {}
     const muted = audio.toggleMute();
-    btnMuto.classList.toggle('attivo', muted);
-    btnMuto.title = muted ? 'Riattiva musica (doppio clic)' : 'Volume musica (doppio clic per muto)';
+    btnMute.classList.toggle('active', muted);
+    btnMute.title = muted ? 'Unmute music (double-click)' : 'Music volume (double-click to mute)';
 });
 
 document.addEventListener('click', e => {
     if (e.target.closest('#controls-left')) return;
-    _chiudiFlyout(utenteFlyout, volumeFlyout);
-    btnProfiloToggle?.setAttribute('aria-expanded', 'false');
-    btnMuto?.setAttribute('aria-expanded', 'false');
+    _closeFlyout(userFlyout, volumeFlyout);
+    btnProfileToggle?.setAttribute('aria-expanded', 'false');
+    btnMute?.setAttribute('aria-expanded', 'false');
 });
 
-// Pulsante info / modal
+// Info button / modal
 const modalInfo = document.getElementById('modal-info');
 document.getElementById('btn-info').addEventListener('click', () => {
-    _chiudiFlyout(utenteFlyout, volumeFlyout);
-    modalInfo.classList.add('visibile');
+    _closeFlyout(userFlyout, volumeFlyout);
+    modalInfo.classList.add('visible');
 });
-document.getElementById('modal-chiudi').addEventListener('click', () => {
-    modalInfo.classList.remove('visibile');
+document.getElementById('modal-close').addEventListener('click', () => {
+    modalInfo.classList.remove('visible');
 });
 modalInfo.addEventListener('click', e => {
-    if (e.target === modalInfo) modalInfo.classList.remove('visibile');
+    if (e.target === modalInfo) modalInfo.classList.remove('visible');
 });
 
-// Calendario dal top-right
-document.getElementById('btn-calendario-top')?.addEventListener('click', () => {
-    _chiudiFlyout(utenteFlyout, volumeFlyout);
-    apriCalendario();
+// Calendar from top-right
+document.getElementById('btn-calendar-top')?.addEventListener('click', () => {
+    _closeFlyout(userFlyout, volumeFlyout);
+    openCalendar();
 });
 
-// ------------------------------------------------------------------ Panel post-meditazione (riflessione via particelle + voce)
+// ------------------------------------------------------------------ Post-meditation panel (reflection via particles + voice)
 
-async function _completaSessione(riflessione) {
-    _nascondiBtnFineRiflessione();
+async function _completeSession(riflessione) {
+    _hideEndReflectionBtn();
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ tipo: 'riflessione_post', testo: riflessione }));
     }
 
-    _tInizioPost = false;
-    _seriePost       = _analizzatorePost?.serie() || { valenza: [], arousal: [] };
-    const emozionePost = _analizzatorePost?.report() || {};
-    _analizzatorePost?.ferma();
+    _postPhaseActive = false;
+    _seriesPost       = _analyzerPost?.series() || { valenza: [], arousal: [] };
+    const emozionePost = _analyzerPost?.report() || {};
+    _analyzerPost?.stop();
 
-    document.getElementById('testo-sessione')?.classList.remove('visibile');
+    document.getElementById('session-text')?.classList.remove('visible');
 
-    // Chiama Claude con dati pre+post
+    // Call Claude with pre+post data
     const payload = {
-        racconto:      _testoSessione.slice(0, 400),
+        racconto:      _sessionText.slice(0, 400),
         riflessione:   riflessione.slice(0, 400),
-        durata_minuti: _durataSessione,
-        emozioni:      _emozionePre || {},
+        durata_minuti: _sessionDuration,
+        emozioni:      _emotionPre || {},
         emozioni_post: emozionePost,
-        profilo:       _profiloUtente || {},
+        profilo:       _userProfile || {},
     };
 
     let analisi = {};
@@ -1127,282 +1191,423 @@ async function _completaSessione(riflessione) {
         console.warn('analisi: errore Claude', e);
     }
 
-    // Salva su Firestore (serie + spiegazioni per il calendario)
-    const testiRisultato = _testiRisultati(
-        _emozionePre, emozionePost, _seriePre, _seriePost
-    );
+    // Save to Firestore (series + plain-language copy for the calendar)
+    const testiRisultato = _resultsCopy(_emotionPre, emozionePost, _seriesPre, _seriesPost);
     const datiSessione = {
-        racconto:            _testoSessione,
+        racconto:            _sessionText,
         riflessione_post:    riflessione,
-        durata_minuti:       _durataSessione,
-        emozioni_pre:        _emozionePre || {},
+        durata_minuti:       _sessionDuration,
+        emozioni_pre:        _emotionPre || {},
         emozioni_post:       emozionePost,
-        serie_pre:           _seriePre,
-        serie_post:          _seriePost,
-        spiegazione_umore:   testiRisultato.spiegaUmore,
-        spiegazione_energia: testiRisultato.spiegaEnergia,
+        serie_pre:           _seriesPre,
+        serie_post:          _seriesPost,
+        spiegazione_umore:   testiRisultato.explainMood,
+        spiegazione_energia: testiRisultato.explainEnergy,
         analisi_claude:      analisi,
-        completata:          _durataSessione >= 2,
+        completata:          _sessionDuration >= 2,
     };
 
-    if (_utenteCorrente) {
-        const id = await salvaSessioneGiornaliera(_utenteCorrente.uid, datiSessione);
-        const oggi = new Date().toISOString().split('T')[0];
-        if (!_calSessioni[oggi]) _calSessioni[oggi] = [];
-        _calSessioni[oggi].unshift({ id: id || `local-${Date.now()}`, ...datiSessione, data_giorno: oggi });
+    if (_currentUser) {
+        const id = await saveDailySession(_currentUser.uid, datiSessione);
+        const today = new Date().toISOString().split('T')[0];
+        if (!_calSessions[today]) _calSessions[today] = [];
+        _calSessions[today].unshift({ id: id || `local-${Date.now()}`, ...datiSessione, data_giorno: today });
     }
 
-    // Mostra il pannello risultati con i grafici
-    mostraRisultati(_emozionePre || {}, emozionePost, analisi, _seriePre, _seriePost);
-    document.getElementById('panel-risultati').classList.add('visibile');
+    // Show the results panel with the charts
+    showResults(_emotionPre || {}, emozionePost, analisi, _seriesPre, _seriesPost);
+    document.getElementById('panel-results').classList.add('visible');
 }
 
-// ------------------------------------------------------------------ Grafici Chart.js
-let _chartV, _chartA;
+// ------------------------------------------------------------------ Chart.js charts
+let _resultCharts = [];
 
-function _umoreInParole(v) {
-    if (v > 0.3)  return 'Umore aperto e leggero';
-    if (v > 0.1)  return 'Umore leggermente positivo';
-    if (v < -0.3) return 'Umore chiuso o pensieroso';
-    if (v < -0.1) return 'Umore un po\' cupo';
-    return 'Umore neutro';
+function _mean(arr) {
+    if (!arr?.length) return null;
+    return arr.reduce((s, v) => s + v, 0) / arr.length;
 }
 
-function _energiaInParole(a) {
-    if (a > 0.65) return 'Molto attivo/a o in tensione';
-    if (a > 0.4)  return 'Vigile, con un po\' di carica';
-    if (a < 0.2)  return 'Rilassato/a e quieto/a';
-    if (a < 0.35) return 'Abbastanza calmo/a';
-    return 'Equilibrio tra calma e attenzione';
+function _fmt(v, digits = 2) {
+    if (v == null || Number.isNaN(v)) return '—';
+    return Number(v).toFixed(digits);
 }
 
-function _etichetteAsse(nPre, nPost) {
-    const tot = nPre + nPost;
-    const labels = new Array(tot).fill('');
-    if (tot === 0) return labels;
-    labels[0] = 'Inizio';
-    if (nPre > 1) labels[nPre - 1] = 'Fine meditazione';
-    if (nPost > 0 && nPre < tot) labels[nPre] = 'Dopo';
-    if (tot > 1) labels[tot - 1] = 'Ora';
-    return labels;
-}
-
-function _datiDueFasi(seriePre, seriePost) {
-    const nPre  = seriePre.length;
-    const nPost = seriePost.length;
-    const pad   = (src, len, offset) => {
-        const out = new Array(len).fill(null);
-        for (let i = 0; i < src.length; i++) out[offset + i] = src[i];
-        return out;
-    };
-    const len = nPre + nPost || 1;
-    return {
-        labels: _etichetteAsse(nPre, nPost),
-        len,
-        datasets: (valsPre, valsPost) => [
-            {
-                label: 'Durante la meditazione',
-                data: pad(valsPre, len, 0),
-                borderColor: 'rgba(120, 220, 160, 0.9)',
-                backgroundColor: 'rgba(120, 220, 160, 0.12)',
-                tension: 0.35,
-                pointRadius: 0,
-                pointHitRadius: 12,
-                spanGaps: false,
-            },
-            {
-                label: 'Dopo la riflessione',
-                data: pad(valsPost, len, nPre),
-                borderColor: 'rgba(255, 200, 100, 0.9)',
-                backgroundColor: 'rgba(255, 200, 100, 0.10)',
-                tension: 0.35,
-                pointRadius: 0,
-                pointHitRadius: 12,
-                spanGaps: false,
-            },
-        ],
-    };
-}
-
-function _spiegaUmore(pre, post, seriePre, seriePost) {
-    const n = seriePre.length + seriePost.length;
-    if (n < 3) {
-        return 'Non abbiamo letto abbastanza dal volto per tracciare come ti sei sentito/a. Resta davanti alla webcam con buona luce.';
+/** Running centroid (cumulative mean) of paired valence/arousal samples. */
+function _centroidPath(vals, arous) {
+    const n = Math.min(vals?.length || 0, arous?.length || 0);
+    const path = [];
+    let sumV = 0, sumA = 0;
+    for (let i = 0; i < n; i++) {
+        sumV += vals[i];
+        sumA += arous[i];
+        path.push({ x: sumV / (i + 1), y: sumA / (i + 1) });
     }
-
-    const vPre  = pre?.valenza_media ?? 0;
-    const vPost = post?.valenza_media ?? vPre;
-    const d     = vPost - vPre;
-    const parti = [];
-
-    if (pre?.arco_emotivo === 'migioramento') {
-        parti.push('Durante la meditazione il volto ha mostrato un andamento verso stati più aperti.');
-    } else if (pre?.arco_emotivo === 'peggioramento') {
-        parti.push('Durante la meditazione il volto ha attraversato momenti più chiusi o pensierosi: può succedere quando emergono emozioni da elaborare.');
-    }
-
-    if (Math.abs(d) < 0.08) {
-        parti.push('Dall\'inizio alla fine il tono emotivo è rimasto abbastanza stabile.');
-    } else if (d > 0) {
-        parti.push('Rispetto all\'inizio, ora sembri uscire con un umore più leggero e disponibile.');
-    } else {
-        parti.push('Rispetto all\'inizio, ora sembri un po\' più chiuso/a o pensieroso/a: non è un fallimento, a volte la meditazione porta in superficie cose difficili.');
-    }
-
-    if (seriePost.length > 2 && Math.abs(vPost - vPre) >= 0.08) {
-        parti.push(vPost > vPre
-            ? 'Anche nel momento dopo, il volto resta su un registro un po\' più sereno.'
-            : 'Nel momento dopo la riflessione il volto resta ancora su un registro più introspettivo.');
-    }
-
-    return parti.join(' ');
+    return path;
 }
 
-function _spiegaEnergia(pre, post) {
-    const n = (pre?.n_campioni || 0) + (post?.n_campioni || 0);
-    if (n < 3) {
-        return 'Non abbiamo abbastanza dati per descrivere come è cambiata la tua tensione nel tempo.';
-    }
-
-    const aPre  = pre?.arousal_medio ?? 0;
-    const aPost = post?.arousal_medio ?? aPre;
-    const d     = aPost - aPre;
-    const parti = [];
-
-    parti.push(`All\'inizio eri ${_energiaInParole(aPre).toLowerCase()}.`);
-
-    if (Math.abs(d) < 0.08) {
-        parti.push('Il livello di attivazione nel corpo è rimasto più o meno lo stesso per tutta la sessione.');
-    } else if (d < -0.08) {
-        parti.push('Col passare dei minuti sembri esserti sciolto/a: meno tensione, più rilassamento.');
-    } else {
-        parti.push('Col passare dei minuti il corpo è risultato più vigile o più in allerta, come dopo uno sforzo di attenzione.');
-    }
-
-    if (post?.n_campioni >= 3) {
-        parti.push(`Dopo la riflessione risulti ${_energiaInParole(aPost).toLowerCase()}.`);
-    }
-
-    return parti.join(' ');
+function _phaseCentroid(vals, arous) {
+    const v = _mean(vals);
+    const a = _mean(arous);
+    if (v == null || a == null) return null;
+    return { x: v, y: a };
 }
 
-function _testiRisultati(pre, post, seriePre, seriePost) {
-    const preV  = seriePre?.valenza  || [];
-    const postV = seriePost?.valenza || [];
-    return {
-        spiegaUmore:   _spiegaUmore(pre, post, preV, postV),
-        spiegaEnergia: _spiegaEnergia(pre, post),
-    };
+function _timeLabels(n) {
+    if (n <= 0) return [];
+    return Array.from({ length: n }, (_, i) => {
+        if (i === 0) return '0s';
+        if (i === n - 1 || i % Math.max(1, Math.floor(n / 4)) === 0) return `${i}s`;
+        return '';
+    });
 }
 
-function _opzioniGrafico(tooltipFn) {
+function _lineChartOptions(yMin, yMax, yTickFn) {
     return {
         responsive: true,
         maintainAspectRatio: false,
+        animation: false,
         interaction: { mode: 'index', intersect: false },
         plugins: {
-            legend: {
-                display: true,
-                labels: { color: 'rgba(255,255,255,0.55)', boxWidth: 14, font: { size: 11 } },
-            },
+            legend: { display: false },
             tooltip: {
                 callbacks: {
+                    title: items => {
+                        const i = items[0]?.dataIndex;
+                        return i == null ? '' : `t = ${i}s`;
+                    },
                     label: ctx => {
                         const v = ctx.parsed.y;
-                        return v == null ? null : tooltipFn(v);
+                        return v == null ? null : yTickFn(v);
                     },
                 },
             },
         },
         scales: {
             x: {
-                ticks: { color: 'rgba(255,255,255,0.45)', font: { size: 10 }, maxRotation: 0 },
-                grid: { color: 'rgba(255,255,255,0.06)' },
+                ticks: { color: 'rgba(255,255,255,0.4)', font: { size: 9 }, maxRotation: 0, autoSkip: false },
+                grid: { color: 'rgba(255,255,255,0.05)' },
             },
             y: {
-                ticks: { display: false },
+                min: yMin,
+                max: yMax,
+                ticks: {
+                    color: 'rgba(255,255,255,0.45)',
+                    font: { size: 9 },
+                    callback: v => yTickFn(v),
+                },
                 grid: { color: 'rgba(255,255,255,0.06)' },
             },
         },
     };
 }
 
-function _creaGraficiSuCanvas(canvasV, canvasA, seriePre, seriePost) {
+function _makeLineChart(canvas, values, color, fill, yMin, yMax, yTickFn) {
+    const data = values || [];
+    return new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels: _timeLabels(data.length),
+            datasets: [{
+                data,
+                borderColor: color,
+                backgroundColor: fill,
+                fill: true,
+                tension: 0.3,
+                pointRadius: data.length <= 40 ? 2 : 0,
+                pointHitRadius: 10,
+                borderWidth: 1.5,
+            }],
+        },
+        options: _lineChartOptions(yMin, yMax, yTickFn),
+    });
+}
+
+function _makeCentroidChart(canvas, seriePre, seriePost) {
+    const preV  = seriePre?.valenza  || [];
+    const preA  = seriePre?.arousal  || [];
+    const postV = seriePost?.valenza || [];
+    const postA = seriePost?.arousal || [];
+
+    const pathPre  = _centroidPath(preV, preA);
+    const pathPost = _centroidPath(postV, postA);
+    const cPre  = _phaseCentroid(preV, preA);
+    const cPost = _phaseCentroid(postV, postA);
+
+    const datasets = [];
+    if (pathPre.length) {
+        datasets.push({
+            label: 'During (running mean)',
+            data: pathPre,
+            showLine: true,
+            borderColor: 'rgba(120, 220, 160, 0.85)',
+            backgroundColor: 'rgba(120, 220, 160, 0.85)',
+            pointRadius: 0,
+            borderWidth: 1.5,
+            tension: 0.2,
+        });
+    }
+    if (pathPost.length) {
+        datasets.push({
+            label: 'After (running mean)',
+            data: pathPost,
+            showLine: true,
+            borderColor: 'rgba(255, 200, 100, 0.85)',
+            backgroundColor: 'rgba(255, 200, 100, 0.85)',
+            pointRadius: 0,
+            borderWidth: 1.5,
+            tension: 0.2,
+        });
+    }
+    if (cPre) {
+        datasets.push({
+            label: 'Mean during',
+            data: [cPre],
+            showLine: false,
+            pointRadius: 7,
+            pointHoverRadius: 8,
+            backgroundColor: 'rgba(120, 220, 160, 1)',
+            borderColor: '#fff',
+            borderWidth: 1.5,
+        });
+    }
+    if (cPost) {
+        datasets.push({
+            label: 'Mean after',
+            data: [cPost],
+            showLine: false,
+            pointRadius: 7,
+            pointHoverRadius: 8,
+            backgroundColor: 'rgba(255, 200, 100, 1)',
+            borderColor: '#fff',
+            borderWidth: 1.5,
+        });
+    }
+    if (cPre && cPost) {
+        datasets.push({
+            label: 'Shift',
+            data: [cPre, cPost],
+            showLine: true,
+            borderColor: 'rgba(255,255,255,0.45)',
+            backgroundColor: 'transparent',
+            borderDash: [4, 4],
+            pointRadius: 0,
+            borderWidth: 1,
+        });
+    }
+
+    return new Chart(canvas, {
+        type: 'scatter',
+        data: { datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    labels: {
+                        color: 'rgba(255,255,255,0.55)',
+                        boxWidth: 10,
+                        font: { size: 10 },
+                        filter: item => item.text !== 'Shift',
+                    },
+                },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => {
+                            const p = ctx.raw;
+                            if (!p || p.x == null) return null;
+                            return `${ctx.dataset.label}: V ${_fmt(p.x)} · A ${_fmt(p.y)}`;
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    type: 'linear',
+                    min: -1,
+                    max: 1,
+                    title: {
+                        display: true,
+                        text: 'Valence (− → +)',
+                        color: 'rgba(255,255,255,0.45)',
+                        font: { size: 10 },
+                    },
+                    ticks: { color: 'rgba(255,255,255,0.4)', font: { size: 9 } },
+                    grid: { color: 'rgba(255,255,255,0.06)' },
+                },
+                y: {
+                    type: 'linear',
+                    min: 0,
+                    max: 1,
+                    title: {
+                        display: true,
+                        text: 'Arousal (calm → activated)',
+                        color: 'rgba(255,255,255,0.45)',
+                        font: { size: 10 },
+                    },
+                    ticks: { color: 'rgba(255,255,255,0.4)', font: { size: 9 } },
+                    grid: { color: 'rgba(255,255,255,0.06)' },
+                },
+            },
+        },
+    });
+}
+
+function _moodInWords(v) {
+    if (v > 0.3)  return 'Open, light mood';
+    if (v > 0.1)  return 'Slightly positive mood';
+    if (v < -0.3) return 'Closed or thoughtful mood';
+    if (v < -0.1) return 'Slightly low mood';
+    return 'Neutral mood';
+}
+
+function _energyInWords(a) {
+    if (a > 0.65) return 'Very active or tense';
+    if (a > 0.4)  return 'Alert, with some energy';
+    if (a < 0.2)  return 'Relaxed and quiet';
+    if (a < 0.35) return 'Fairly calm';
+    return 'Balance of calm and attention';
+}
+
+function _explainMood(pre, post, seriePre, seriePost) {
+    const n = (seriePre?.length || 0) + (seriePost?.length || 0);
+    if (n < 3) {
+        return 'We didn\'t get enough from your face to track how you felt. Stay in front of the webcam with good lighting.';
+    }
+
+    const vPre  = pre?.valenza_media ?? _mean(seriePre) ?? 0;
+    const vPost = post?.valenza_media ?? _mean(seriePost) ?? vPre;
+    const d     = vPost - vPre;
+    const parti = [];
+
+    if (pre?.arco_emotivo === 'miglioramento') {
+        parti.push('During meditation, your face tended toward more open states.');
+    } else if (pre?.arco_emotivo === 'peggioramento') {
+        parti.push('During meditation, your face moved through more closed or thoughtful moments: that can happen when emotions surface to be processed.');
+    }
+
+    if (Math.abs(d) < 0.08) {
+        parti.push('From start to finish, your emotional tone stayed fairly stable.');
+    } else if (d > 0) {
+        parti.push('Compared with the start, you seem to leave with a lighter, more open mood.');
+    } else {
+        parti.push('Compared with the start, you seem a bit more closed or thoughtful: that is not a failure; meditation sometimes brings up hard things.');
+    }
+
+    if ((seriePost?.length || 0) > 2 && Math.abs(vPost - vPre) >= 0.08) {
+        parti.push(vPost > vPre
+            ? 'Afterward, your face still reads a bit more serene.'
+            : 'After reflection, your face still reads more introspective.');
+    }
+
+    return parti.join(' ') || `${_moodInWords(vPre)}.`;
+}
+
+function _explainEnergy(pre, post, seriePre, seriePost) {
+    const n = (pre?.n_campioni || 0) + (post?.n_campioni || 0)
+        || ((seriePre?.length || 0) + (seriePost?.length || 0));
+    if (n < 3) {
+        return 'We don\'t have enough data to describe how your tension changed over time.';
+    }
+
+    const aPre  = pre?.arousal_medio ?? _mean(seriePre) ?? 0;
+    const aPost = post?.arousal_medio ?? _mean(seriePost) ?? aPre;
+    const d     = aPost - aPre;
+    const parti = [];
+
+    parti.push(`At the start you were ${_energyInWords(aPre).toLowerCase()}.`);
+
+    if (Math.abs(d) < 0.08) {
+        parti.push('Your body\'s activation level stayed roughly the same throughout the session.');
+    } else if (d < -0.08) {
+        parti.push('Over the minutes you seem to have loosened up: less tension, more relaxation.');
+    } else {
+        parti.push('Over the minutes your body became more alert, as after focused attention.');
+    }
+
+    if ((post?.n_campioni || seriePost?.length || 0) >= 3) {
+        parti.push(`After reflection you come across as ${_energyInWords(aPost).toLowerCase()}.`);
+    }
+
+    return parti.join(' ');
+}
+
+function _resultsCopy(pre, post, seriePre, seriePost) {
     const preV  = seriePre?.valenza  || [];
     const postV = seriePost?.valenza || [];
     const preA  = seriePre?.arousal  || [];
     const postA = seriePost?.arousal || [];
+    return {
+        explainMood:   _explainMood(pre, post, preV, postV),
+        explainEnergy: _explainEnergy(pre, post, preA, postA),
+    };
+}
 
-    const baseV = _datiDueFasi(preV, postV);
-    const baseA = _datiDueFasi(preA, postA);
+function _destroyResultCharts() {
+    for (const c of _resultCharts) {
+        try { c.destroy(); } catch (_) {}
+    }
+    _resultCharts = [];
+}
+
+function _createChartsOnCanvas(ids, seriePre, seriePost) {
+    const preV  = seriePre?.valenza  || [];
+    const preA  = seriePre?.arousal  || [];
+    const postV = seriePost?.valenza || [];
+    const postA = seriePost?.arousal || [];
 
     Chart.defaults.color = 'rgba(255,255,255,0.45)';
 
-    const optsV = _opzioniGrafico(_umoreInParole);
-    const optsA = _opzioniGrafico(_energiaInParole);
+    const tickV = v => Number(v).toFixed(1);
+    const tickA = v => Number(v).toFixed(1);
+    const charts = [];
 
-    const chartV = new Chart(canvasV, {
-        type: 'line',
-        data: { labels: baseV.labels, datasets: baseV.datasets(preV, postV) },
-        options: {
-            ...optsV,
-            scales: {
-                ...optsV.scales,
-                y: { ...optsV.scales.y, min: -1, max: 1 },
-            },
-        },
-    });
+    if (ids.vPre)  charts.push(_makeLineChart(ids.vPre,  preV,  'rgba(120, 220, 160, 0.95)', 'rgba(120, 220, 160, 0.12)', -1, 1, tickV));
+    if (ids.aPre)  charts.push(_makeLineChart(ids.aPre,  preA,  'rgba(120, 180, 255, 0.95)', 'rgba(120, 180, 255, 0.12)',  0, 1, tickA));
+    if (ids.vPost) charts.push(_makeLineChart(ids.vPost, postV, 'rgba(255, 200, 100, 0.95)', 'rgba(255, 200, 100, 0.12)', -1, 1, tickV));
+    if (ids.aPost) charts.push(_makeLineChart(ids.aPost, postA, 'rgba(255, 160, 120, 0.95)', 'rgba(255, 160, 120, 0.12)',  0, 1, tickA));
+    if (ids.centroid) charts.push(_makeCentroidChart(ids.centroid, seriePre, seriePost));
 
-    const chartA = new Chart(canvasA, {
-        type: 'line',
-        data: { labels: baseA.labels, datasets: baseA.datasets(preA, postA) },
-        options: {
-            ...optsA,
-            scales: {
-                ...optsA.scales,
-                y: { ...optsA.scales.y, min: 0, max: 1 },
-            },
-        },
-    });
-
-    return { chartV, chartA };
+    return charts;
 }
 
-function mostraRisultati(pre, post, analisi, seriePre, seriePost) {
-    if (_chartV) { _chartV.destroy(); _chartV = null; }
-    if (_chartA) { _chartA.destroy(); _chartA = null; }
+function showResults(pre, post, analisi, seriePre, seriePost) {
+    _destroyResultCharts();
 
-    const charts = _creaGraficiSuCanvas(
-        document.getElementById('grafico-valence'),
-        document.getElementById('grafico-arousal'),
-        seriePre, seriePost,
-    );
-    _chartV = charts.chartV;
-    _chartA = charts.chartA;
+    _resultCharts = _createChartsOnCanvas({
+        vPre:     document.getElementById('chart-v-pre'),
+        aPre:     document.getElementById('chart-a-pre'),
+        vPost:    document.getElementById('chart-v-post'),
+        aPost:    document.getElementById('chart-a-post'),
+        centroid: document.getElementById('chart-centroid'),
+    }, seriePre, seriePost);
 
-    const testi = _testiRisultati(pre, post, seriePre, seriePost);
-    document.getElementById('spiega-valence').textContent = testi.spiegaUmore;
-    document.getElementById('spiega-arousal').textContent = testi.spiegaEnergia;
+    const testi = _resultsCopy(pre, post, seriePre, seriePost);
+    const moodEl = document.getElementById('spiega-valence');
+    if (moodEl) moodEl.textContent = testi.explainMood;
+    const energyEl = document.getElementById('spiega-arousal');
+    if (energyEl) energyEl.textContent = testi.explainEnergy;
 
     if (analisi?.interpretazione) {
-        document.getElementById('risultati-testo').textContent = analisi.interpretazione;
-        document.getElementById('risultati-analisi').style.display = 'block';
+        document.getElementById('results-text').textContent = analisi.interpretazione;
+        document.getElementById('results-analysis').style.display = 'block';
     } else {
-        document.getElementById('risultati-analisi').style.display = 'none';
+        document.getElementById('results-analysis').style.display = 'none';
     }
 }
 
-function _distruggiGraficiCalendario() {
+function _destroyCalendarCharts() {
     for (const c of _calCharts) {
         try { c.destroy(); } catch (_) {}
     }
     _calCharts = [];
 }
 
-function _htmlRisultatoSessione(s, sid) {
+function _sessionResultHtml(s, sid) {
     const testi = (s.spiegazione_umore && s.spiegazione_energia)
-        ? { spiegaUmore: s.spiegazione_umore, spiegaEnergia: s.spiegazione_energia }
-        : _testiRisultati(
+        ? { explainMood: s.spiegazione_umore, explainEnergy: s.spiegazione_energia }
+        : _resultsCopy(
             s.emozioni_pre, s.emozioni_post,
             s.serie_pre || { valenza: [], arousal: [] },
             s.serie_post || { valenza: [], arousal: [] },
@@ -1410,79 +1615,86 @@ function _htmlRisultatoSessione(s, sid) {
     const haSerie = (s.serie_pre?.valenza?.length || 0) + (s.serie_post?.valenza?.length || 0) >= 3;
     const dur = s.durata_minuti || '—';
 
-    return `<div class="cal-sessione-item" data-sid="${sid}">
-      <strong>${dur} minuti</strong>
-      ${s.racconto ? `<div class="cal-racconto">"${s.racconto.slice(0, 100)}${s.racconto.length > 100 ? '…' : ''}"</div>` : ''}
-      ${s.riflessione_post ? `<div class="cal-racconto" style="font-style:normal;opacity:0.85">Dopo: "${s.riflessione_post.slice(0, 100)}${s.riflessione_post.length > 100 ? '…' : ''}"</div>` : ''}
+    return `<div class="cal-session-item" data-sid="${sid}">
+      <strong>${dur} minutes</strong>
+      ${s.racconto ? `<div class="cal-story">"${s.racconto.slice(0, 100)}${s.racconto.length > 100 ? '…' : ''}"</div>` : ''}
+      ${s.riflessione_post ? `<div class="cal-story" style="font-style:normal;opacity:0.85">After: "${s.riflessione_post.slice(0, 100)}${s.riflessione_post.length > 100 ? '…' : ''}"</div>` : ''}
       ${haSerie ? `
-        <div class="grafico-wrap">
-          <h4>Come ti sei sentito/a</h4>
-          <canvas id="cal-v-${sid}" height="90"></canvas>
-          <p class="grafico-spiegazione">${testi.spiegaUmore}</p>
+        <div class="charts-grid">
+          <div class="chart-wrap"><h4>Valence · during</h4><canvas id="cal-vp-${sid}" height="90"></canvas></div>
+          <div class="chart-wrap"><h4>Arousal · during</h4><canvas id="cal-ap-${sid}" height="90"></canvas></div>
+          <div class="chart-wrap"><h4>Valence · after</h4><canvas id="cal-vo-${sid}" height="90"></canvas></div>
+          <div class="chart-wrap"><h4>Arousal · after</h4><canvas id="cal-ao-${sid}" height="90"></canvas></div>
+          <div class="chart-wrap chart-centroid"><h4>Centroid path</h4><canvas id="cal-c-${sid}" height="140"></canvas></div>
         </div>
-        <div class="grafico-wrap">
-          <h4>Quanto eri attivo/a o in tensione</h4>
-          <canvas id="cal-a-${sid}" height="90"></canvas>
-          <p class="grafico-spiegazione">${testi.spiegaEnergia}</p>
-        </div>` : `
-        <p class="grafico-spiegazione">${testi.spiegaUmore}</p>
-        <p class="grafico-spiegazione">${testi.spiegaEnergia}</p>`}
+        <p class="chart-caption">${testi.explainMood}</p>
+        <p class="chart-caption">${testi.explainEnergy}</p>` : `
+        <p class="chart-caption">${testi.explainMood}</p>
+        <p class="chart-caption">${testi.explainEnergy}</p>`}
       ${s.analisi_claude?.interpretazione ? `
-        <div class="cal-sintesi">
-          <strong>In sintesi</strong>
+        <div class="cal-summary">
+          <strong>In summary</strong>
           ${s.analisi_claude.interpretazione}
         </div>` : ''}
     </div>`;
 }
 
-function _renderGraficiCalendario(sessioni) {
+function _renderCalendarCharts(sessioni) {
     for (const s of sessioni) {
         const sid = s.id || 'x';
         const n = (s.serie_pre?.valenza?.length || 0) + (s.serie_post?.valenza?.length || 0);
         if (n < 3) continue;
-        const cv = document.getElementById(`cal-v-${sid}`);
-        const ca = document.getElementById(`cal-a-${sid}`);
-        if (!cv || !ca) continue;
-        const { chartV, chartA } = _creaGraficiSuCanvas(
-            cv, ca, s.serie_pre || { valenza: [], arousal: [] }, s.serie_post || { valenza: [], arousal: [] },
+        const ids = {
+            vPre:     document.getElementById(`cal-vp-${sid}`),
+            aPre:     document.getElementById(`cal-ap-${sid}`),
+            vPost:    document.getElementById(`cal-vo-${sid}`),
+            aPost:    document.getElementById(`cal-ao-${sid}`),
+            centroid: document.getElementById(`cal-c-${sid}`),
+        };
+        if (!ids.vPre || !ids.centroid) continue;
+        const charts = _createChartsOnCanvas(
+            ids, s.serie_pre || { valenza: [], arousal: [] }, s.serie_post || { valenza: [], arousal: [] },
         );
-        _calCharts.push(chartV, chartA);
+        _calCharts.push(...charts);
     }
 }
 
-document.getElementById('btn-chiudi-risultati').addEventListener('click', () => {
-    document.getElementById('panel-risultati').classList.remove('visibile');
+document.getElementById('btn-close-results').addEventListener('click', () => {
+    document.getElementById('panel-results').classList.remove('visible');
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ tipo: 'risultati_visti' }));
     }
 });
-document.getElementById('btn-calendario-apri').addEventListener('click', () => {
-    document.getElementById('panel-risultati').classList.remove('visibile');
-    apriCalendario();
+document.getElementById('btn-restart')?.addEventListener('click', () => {
+    _restartFromStart();
+});
+document.getElementById('btn-calendar-open').addEventListener('click', () => {
+    document.getElementById('panel-results').classList.remove('visible');
+    openCalendar();
 });
 
-// ------------------------------------------------------------------ Calendario
-async function apriCalendario() {
-    if (_utenteCorrente) {
-        try { _calSessioni = await caricaSessioniCalendario(_utenteCorrente.uid); }
-        catch (_) { _calSessioni = {}; }
+// ------------------------------------------------------------------ Calendar
+async function openCalendar() {
+    if (_currentUser) {
+        try { _calSessions = await loadCalendarSessions(_currentUser.uid); }
+        catch (_) { _calSessions = {}; }
     }
-    renderCalendario();
-    document.getElementById('modal-calendario').classList.add('visibile');
+    renderCalendar();
+    document.getElementById('modal-calendar').classList.add('visible');
 }
 
-function renderCalendario() {
-    const anno = _calMese.getFullYear();
-    const mese = _calMese.getMonth();
-    document.getElementById('cal-titolo-mese').textContent =
-        new Date(anno, mese, 1).toLocaleDateString('it-IT', { month: 'long', year: 'numeric' });
+function renderCalendar() {
+    const anno = _calMonth.getFullYear();
+    const mese = _calMonth.getMonth();
+    document.getElementById('cal-month-title').textContent =
+        new Date(anno, mese, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
     const grid  = document.getElementById('cal-grid');
     grid.innerHTML = '';
 
     const primoGiorno  = (new Date(anno, mese, 1).getDay() + 6) % 7; // lun=0
     const ultimoGiorno = new Date(anno, mese + 1, 0).getDate();
-    const oggiStr      = new Date().toISOString().split('T')[0];
+    const todayStr      = new Date().toISOString().split('T')[0];
 
     for (let i = 0; i < primoGiorno; i++) {
         grid.appendChild(document.createElement('div')).className = 'cal-cell';
@@ -1492,52 +1704,52 @@ function renderCalendario() {
         const cell = document.createElement('div');
         cell.className = 'cal-cell';
         cell.textContent = g;
-        if (data === oggiStr) cell.classList.add('oggi');
-        if (_calSessioni[data]) {
-            cell.classList.add('ha-sessione');
-            cell.title = `${_calSessioni[data].length} sessione/i`;
-            cell.addEventListener('click', () => mostraDettaglioGiorno(data, cell));
+        if (data === todayStr) cell.classList.add('today');
+        if (_calSessions[data]) {
+            cell.classList.add('has-session');
+            cell.title = `${_calSessions[data].length} session(s)`;
+            cell.addEventListener('click', () => showDayDetail(data, cell));
         }
         grid.appendChild(cell);
     }
-    document.getElementById('cal-dettaglio').innerHTML = '';
-    _distruggiGraficiCalendario();
+    document.getElementById('cal-detail').innerHTML = '';
+    _destroyCalendarCharts();
 }
 
-function mostraDettaglioGiorno(data, cell) {
-    document.querySelectorAll('.cal-cell.selezionato').forEach(c => c.classList.remove('selezionato'));
-    cell.classList.add('selezionato');
+function showDayDetail(data, cell) {
+    document.querySelectorAll('.cal-cell.selected').forEach(c => c.classList.remove('selected'));
+    cell.classList.add('selected');
 
-    _distruggiGraficiCalendario();
+    _destroyCalendarCharts();
 
-    const sessioni = _calSessioni[data] || [];
-    const div = document.getElementById('cal-dettaglio');
-    const fmt = new Date(data + 'T12:00:00').toLocaleDateString('it-IT',
+    const sessioni = _calSessions[data] || [];
+    const div = document.getElementById('cal-detail');
+    const fmt = new Date(data + 'T12:00:00').toLocaleDateString('en-US',
         { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
     if (!sessioni.length) {
         div.innerHTML = `<div style="color:rgba(255,255,255,0.55); font-size:0.75rem; margin-bottom:0.75rem; letter-spacing:0.06em; text-transform:uppercase">${fmt}</div>
-            <p>Nessuna sessione registrata per questo giorno.</p>`;
+            <p>No sessions recorded for this day.</p>`;
         return;
     }
 
     div.innerHTML = `<div style="color:rgba(255,255,255,0.55); font-size:0.75rem; margin-bottom:0.75rem; letter-spacing:0.06em; text-transform:uppercase">${fmt}</div>` +
-        sessioni.map(s => _htmlRisultatoSessione(s, s.id || `s${Math.random().toString(36).slice(2, 8)}`)).join('');
+        sessioni.map(s => _sessionResultHtml(s, s.id || `s${Math.random().toString(36).slice(2, 8)}`)).join('');
 
-    _renderGraficiCalendario(sessioni);
+    _renderCalendarCharts(sessioni);
 }
 
-document.getElementById('cal-prec').addEventListener('click', () => {
-    _calMese = new Date(_calMese.getFullYear(), _calMese.getMonth() - 1, 1);
-    renderCalendario();
+document.getElementById('cal-prev').addEventListener('click', () => {
+    _calMonth = new Date(_calMonth.getFullYear(), _calMonth.getMonth() - 1, 1);
+    renderCalendar();
 });
-document.getElementById('cal-succ').addEventListener('click', () => {
-    _calMese = new Date(_calMese.getFullYear(), _calMese.getMonth() + 1, 1);
-    renderCalendario();
+document.getElementById('cal-next').addEventListener('click', () => {
+    _calMonth = new Date(_calMonth.getFullYear(), _calMonth.getMonth() + 1, 1);
+    renderCalendar();
 });
-document.getElementById('btn-chiudi-calendario').addEventListener('click', () => {
-    _distruggiGraficiCalendario();
-    document.getElementById('modal-calendario').classList.remove('visibile');
+document.getElementById('btn-close-calendar').addEventListener('click', () => {
+    _destroyCalendarCharts();
+    document.getElementById('modal-calendar').classList.remove('visible');
 });
 
 // ------------------------------------------------------------------ Helper: Web Speech API
@@ -1562,12 +1774,12 @@ function _initVoice(btnMic, textarea, statoEl, onFine) {
     };
     rec.onend = () => {
         btnMic.classList.remove('rec');
-        if (statoEl) statoEl.textContent = 'pronto';
+        if (statoEl) statoEl.textContent = 'ready';
         onFine?.();
     };
     rec.onerror = () => {
         btnMic.classList.remove('rec');
-        if (statoEl) statoEl.textContent = 'errore microfono';
+        if (statoEl) statoEl.textContent = 'microphone error';
     };
 
     btnMic.addEventListener('click', () => {
@@ -1578,7 +1790,7 @@ function _initVoice(btnMic, textarea, statoEl, onFine) {
             try {
                 rec.start();
                 btnMic.classList.add('rec');
-                if (statoEl) statoEl.textContent = 'ascolto…';
+                if (statoEl) statoEl.textContent = 'listening…';
             } catch (_) {}
         }
     });

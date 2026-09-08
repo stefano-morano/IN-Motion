@@ -1,17 +1,17 @@
 /**
- * logica.js — porta diretta di td_face_points.py in JavaScript.
+ * logica.js — direct port of td_face_points.py to JavaScript.
  *
- * Calcola ogni fotogramma le posizioni e i colori delle 13.664 particelle.
- * Nessuna dipendenza da Three.js: restituisce Float32Array grezze che il
- * renderer può caricare in BufferGeometry senza ulteriori conversioni.
+ * Each frame computes positions and colors for 13,664 particles.
+ * No Three.js dependency: returns raw Float32Arrays that the
+ * renderer can load into BufferGeometry without further conversion.
  */
 
 import {
-    SCALA, CAM_TX, CAM_TY,
-    aspettoSchermo, raggioVisibile,
+    SCALE, CAM_TX, CAM_TY,
+    screenAspect, visibleRadius,
 } from './scena.js';
 
-// ------------------------------------------------------------------ costanti
+// ------------------------------------------------------------------ constants
 const TOTALE_PARTICELLE = 13664;
 const ESPONENTE_DENSITA = 0.45;
 
@@ -20,19 +20,19 @@ const PALETTE_CALMA = {
     luce:  [0.300, 0.460, 0.640],
 };
 
-// Il blu qui sopra non e' IL colore dell'opera: e' il colore di PRIMA che
-// l'opera sappia chi ha davanti. La tinta che Claude ricava dal racconto non
-// aspetta il mandala per farsi vedere — entra appena esiste e cresce fase per
-// fase. Quanta ne sia entrata lo dice tintaForza(), che comanda la macchina a
-// stati Python via /tinta_forza.
-// Allineato a visuals/td_face_points.py: se cambi i numeri qui, cambiali anche
-// li' e in visuals/mandala.py.
+// The blue above is not THE color of the piece: it is the color from BEFORE
+// the piece knows who is in front of it. The tint Claude derives from the
+// story does not wait for the mandala to appear — it enters as soon as it
+// exists and grows phase by phase. How much has entered is told by
+// tintaForza(), which drives the Python state machine via /tinta_forza.
+// Aligned with visuals/td_face_points.py: if you change the numbers here,
+// change them there too and in visuals/mandala.py.
 const DURATA_TINTA = 12.0;
 const INTENSITA_COLORE = 1.35;
 
-// L'alone di sfondo. Segue anche lui la tinta personale, cosi' il colore non
-// e' addosso alle particelle ma nell'aria intorno. Nello shader la FORMA
-// dell'alone e il suo COLORE sono separati, come i due nodi dentro TD.
+// The background halo. It follows the personal tint too, so color is not
+// stuck on the particles but in the air around them. In the shader the SHAPE
+// of the halo and its COLOR are separate, like the two nodes inside TD.
 const SFONDO_CALMA = [0.030, 0.042, 0.085];
 const NEBBIA_LUMINOSITA = 0.35;
 const SCINTILLIO = 0.16;
@@ -46,7 +46,7 @@ const MANDALA_CUPOLA = 0.16;
 const MANDALA_SPESSORE = 0.035;
 const MANDALA_ROTAZIONE = 0.06;
 const MANDALA_NEBBIA = 0.3;
-// Gradiente colore per emozione (allineato a visuals/mandala.py GRADIENTE)
+// Color gradient by emotion (aligned with visuals/mandala.py GRADIENTE)
 const MANDALA_GRADIENTE = {
     Q1: { apertura: 46.0, verso: 1,  satFondo: 0.86, satLuce: 0.60 },
     Q2: { apertura: 42.0, verso: -1, satFondo: 0.92, satLuce: 0.68 },
@@ -54,7 +54,7 @@ const MANDALA_GRADIENTE = {
     Q4: { apertura: 14.0, verso: 1,  satFondo: 0.80, satLuce: 0.45 },
 };
 const MANDALA_EMOZIONE_DEFAULT = 'Q2';
-// Il raggio visibile corrisponde a metà altezza del frustum (SCALA/2)
+// Visible radius matches half the frustum height (SCALE/2)
 
 const POLVERE_AMPIEZZA = 0.68;
 const POLVERE_PROFONDITA = 1.00;
@@ -69,12 +69,12 @@ const NEBBIA_RAGGIO = 0.035;
 const FLUTTUAZIONE = 0.012;
 const FLUTTUAZIONE_NEBBIA = 3.0;
 const CORRENTE_AMPIEZZA = 0.035;
-const CORRENTE_SCALA = 1.4;
+const CURRENT_SCALE = 1.4;
 const CORRENTE_VELOCITA = 0.25;
 const INERZIA_MIN = 0.04;
 const INERZIA_MAX = 0.28;
 
-// dissoluzione
+// dissolution
 const NASO = 4;
 const RAGGIO_NASO = 0.38;
 const FORZA_NASO = 3.00;
@@ -102,7 +102,7 @@ class RNG {
         const u2 = this.next();
         return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
     }
-    /** Singolo float uniforme in [lo, hi) */
+    /** Single uniform float in [lo, hi) */
     uniform(lo, hi) { return lo + (hi - lo) * this.next(); }
     uniformF32(lo, hi, n) {
         const a = new Float32Array(n);
@@ -175,26 +175,26 @@ function _rgbToHsv(r, g, b) {
     return [h, max > 1e-9 ? d / max : 0, max];
 }
 
-/** Lo stesso colore, con la saturazione alzata di INTENSITA_COLORE. */
+/** The same color, with saturation raised by INTENSITA_COLORE. */
 function _acceso(rgb) {
     const [h, s, v] = _rgbToHsv(rgb[0], rgb[1], rgb[2]);
     return _hsvToRgb(h, Math.min(1, s * INTENSITA_COLORE), v);
 }
 
 /**
- * Il passaggio dal blu alla tinta personale, k da 0 a 1.
+ * The passage from blue to the personal tint, k from 0 to 1.
  *
- * NON e' una media fra i due colori, ed e' una lezione presa sbagliando: il
- * blu sta a 212 gradi e le tinte che Claude sceglie stanno spesso dall'altra
- * parte della ruota, quindi mediarli farebbe passare il colore per la strada
- * piu' corta fra i due — e quella strada e' una TERZA tinta. Con un'ancora
- * ambra la meditazione restava per un minuto su un verde che non c'entrava
- * niente con quello che la persona aveva raccontato.
+ * It is NOT an average of the two colors, and that is a lesson learned the
+ * hard way: blue sits at 212 degrees and the tints Claude chooses often sit
+ * on the other side of the wheel, so averaging would walk the color along the
+ * shortest path between them — and that path is a THIRD tint. With an amber
+ * anchor the meditation stayed for a minute on a green that had nothing to
+ * do with what the person had told.
  *
- * Qui invece la tonalita' non si sposta mai: fino a meta' strada e' il blu che
- * si scarica, da meta' in poi e' la tinta personale che si carica, e nel mezzo
- * passano entrambe per il grigio. La LUMINOSITA' invece attraversa dritta: e'
- * l'unica delle tre a non avere una strada sbagliata.
+ * Here instead hue never moves: until halfway it is the blue discharging,
+ * from halfway on it is the personal tint charging, and in the middle both
+ * pass through grey. LIGHTNESS goes straight across: it is the only one of
+ * the three that has no wrong road.
  */
 function _miscela(blu, personale, k) {
     const [hB, sB, vB] = _rgbToHsv(blu[0], blu[1], blu[2]);
@@ -204,10 +204,10 @@ function _miscela(blu, personale, k) {
     return _hsvToRgb(hP, sP * (2 * k - 1), v);
 }
 
-// ------------------------------------------------------------------ classe principale
-export class LogicaParticelle {
+// ------------------------------------------------------------------ main class
+export class ParticleLogic {
     constructor() {
-        this._c = {};          // cache: tutto quello che si calcola una volta
+        this._c = {};          // cache: everything computed once
         this._triangoli = null;
         this._pronto = false;
         this._onResize = () => { this._c.polvere = null; };
@@ -217,7 +217,7 @@ export class LogicaParticelle {
     async init() {
         const resp = await fetch('/face_triangoli.txt');
         const txt = await resp.text();
-        // Parsa le righe, salta i commenti
+        // Parse lines, skip comments
         const righe = txt.split('\n')
             .filter(r => r.trim() && !r.startsWith('#'))
             .map(r => r.trim().split(/\s+/).map(Number));
@@ -226,9 +226,9 @@ export class LogicaParticelle {
         this._pronto = true;
     }
 
-    // ---------------------------------------------------------------- API pubblica
-    prepara_testi(frasi, canvasFn) {
-        // canvasFn(frase) → Float32Array[n*3] delle posizioni
+    // ---------------------------------------------------------------- public API
+    prepareTexts(frasi, canvasFn) {
+        // canvasFn(frase) → Float32Array[n*3] of positions
         if (!canvasFn) return;
         const testi = this._c.testi || {};
         const n = this._c.n || TOTALE_PARTICELLE;
@@ -241,7 +241,7 @@ export class LogicaParticelle {
         this._c.testi = testi;
     }
 
-    prepara_mandala(petali, anelli, tonalita, seed, emozione = MANDALA_EMOZIONE_DEFAULT) {
+    prepareMandala(petali, anelli, tonalita, seed, emozione = MANDALA_EMOZIONE_DEFAULT) {
         const n = this._c.n || TOTALE_PARTICELLE;
         this._c.mandala_tonalita = tonalita;
         this._c.mandala_emozione = (emozione || MANDALA_EMOZIONE_DEFAULT).toUpperCase();
@@ -249,9 +249,9 @@ export class LogicaParticelle {
     }
 
     /**
-     * Registra la tinta personale, quella che Claude ricava dal racconto.
-     * Arriva molto prima del mandala: appena il modello ha risposto. Da sola
-     * non cambia nulla a schermo — quanta se ne veda lo decide tintaForza().
+     * Register the personal tint Claude derives from the story.
+     * It arrives well before the mandala: as soon as the model has answered.
+     * Alone it changes nothing on screen — how much is visible is decided by tintaForza().
      */
     tinta(tonalita, emozione = MANDALA_EMOZIONE_DEFAULT) {
         this._c.mandala_tonalita = Number(tonalita);
@@ -259,9 +259,9 @@ export class LogicaParticelle {
     }
 
     /**
-     * Quanta tinta personale si vede: 0 il blu di sempre, 1 solo lei.
-     * Si sposta in 'durata' secondi invece che di scatto, e parte dal valore
-     * raggiunto ADESSO: cosi' due comandi ravvicinati si concatenano invece
+     * How much personal tint is visible: 0 the usual blue, 1 only it.
+     * Moves over 'durata' seconds instead of snapping, and starts from the
+     * value reached NOW: so two close commands concatenate instead of
      * di strapparsi.
      */
     tintaForza(valore, durata = DURATA_TINTA) {
@@ -271,7 +271,7 @@ export class LogicaParticelle {
         this._c.tinta_durata = Math.max(0, Number(durata));
     }
 
-    /** La miscela in corso. Senza tinta risponde 0, cioe' il blu. */
+    /** The blend in progress. Without a tint returns 0, i.e. blue. */
     quantaTinta(ora = null) {
         const c = this._c;
         if (c.tinta_a == null) return 0;
@@ -279,27 +279,27 @@ export class LogicaParticelle {
         const da = c.tinta_da || 0, a = c.tinta_a;
         if (!(c.tinta_durata > 0)) return a;
         let k = Math.min(1, Math.max(0, (ora - c.tinta_t0) / c.tinta_durata));
-        // smoothstep: la miscela parte e arriva DA FERMA. Un cambio di tinta
-        // si nota proprio nell'istante in cui comincia e in quello in cui finisce.
+        // smoothstep: the blend starts and arrives FROM REST. A tint change
+        // is noticed exactly at the instant it begins and the instant it ends.
         k = k * k * (3 - 2 * k);
         return da + (a - da) * k;
     }
 
     /**
-     * Il colore dell'alone di sfondo adesso. Lo shader ci moltiplica sopra il
-     * gradiente circolare, che e' bianco e porta solo la forma.
+     * Current background halo color. The shader multiplies the circular
+     * gradient on top, which is white and carries only the shape.
      */
-    sfondoColore(ora = null) {
+    backgroundColor(ora = null) {
         const blu = _acceso(SFONDO_CALMA);
         if (this._c.mandala_tonalita == null) return blu;
-        // la tinta personale tiene saturazione e luminosita' dell'alone blu:
-        // deve restare l'alone appena percettibile di sempre, non una macchia
+        // personal tint keeps saturation and lightness of the blue halo:
+        // it must stay the barely perceptible halo it always was, not a blotch
         const [, sat, val] = _rgbToHsv(SFONDO_CALMA[0], SFONDO_CALMA[1], SFONDO_CALMA[2]);
         const h = (((this._c.mandala_tonalita % 360) + 360) % 360) / 360;
         return _miscela(blu, _acceso(_hsvToRgb(h, sat, val)), this.quantaTinta(ora));
     }
 
-    vai_a(tipo, testo = '', durata = null) {
+    goTo(tipo, testo = '', durata = null) {
         if (tipo === 'dissoluzione') {
             this._c.fuga = null;
             this._c.libera = null;
@@ -312,14 +312,14 @@ export class LogicaParticelle {
         this._c.durata = durata !== null ? durata : DURATA_TRANSIZIONE;
     }
 
-    azzera() {
+    reset() {
         this._c.fuga = null;
         this._c.libera = null;
         this._c.naso_prec = null;
         this._c.t_diss = null;
         this._c.testi = {};
-        // la tinta personale se ne va con le frasi: senza questo la sessione
-        // nuova comincerebbe gia' colorata di chi c'era prima
+        // personal tint leaves with the phrases: without this a new session
+        // would start already colored by whoever was there before
         this._c.mandala_tonalita = null;
         this._c.mandala_emozione = null;
         this._c.tinta_a = null;
@@ -331,22 +331,22 @@ export class LogicaParticelle {
     }
 
     /**
-     * Aggiorna le particelle e restituisce {posizioni, colori} come Float32Array[n*3].
-     * P: array di {x,y,z} normalizzati (478 landmark MediaPipe), o null.
-     * ora: secondi (performance.now()/1000).
+     * Update particles and return {posizioni, colori} as Float32Array[n*3].
+     * P: array of normalized {x,y,z} (478 MediaPipe landmarks), or null.
+     * ora: seconds (performance.now()/1000).
      */
-    aggiorna(P, ora) {
+    update(P, ora) {
         const n = this._c.n || TOTALE_PARTICELLE;
 
-        // Converti landmark MediaPipe → coordinate scena 3D
+        // Convert MediaPipe landmarks → 3D scene coordinates
         let pts = null;
         if (P && P.length >= 478) {
-            const aspetto = aspettoSchermo();
+            const aspetto = screenAspect();
             pts = new Float32Array(P.length * 3);
             for (let i = 0; i < P.length; i++) {
-                pts[i * 3]     = (0.5 - P[i].x) * aspetto * SCALA;
-                pts[i * 3 + 1] = (0.5 - P[i].y) * SCALA;
-                pts[i * 3 + 2] = -P[i].z * SCALA;
+                pts[i * 3]     = (0.5 - P[i].x) * aspetto * SCALE;
+                pts[i * 3 + 1] = (0.5 - P[i].y) * SCALE;
+                pts[i * 3 + 2] = -P[i].z * SCALE;
             }
         }
 
@@ -371,7 +371,7 @@ export class LogicaParticelle {
             fioritura = k;
         }
 
-        // Calcola l'estensione della forma target
+        // Compute the extent of the target shape
         let minX = Infinity, maxX = -Infinity;
         let minY = Infinity, maxY = -Infinity;
         let minZ = Infinity, maxZ = -Infinity;
@@ -385,7 +385,7 @@ export class LogicaParticelle {
         }
         const estensione = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
 
-        // Fioritura a metà transizione
+        // Bloom at mid-transition
         if (fioritura) {
             const dir = this._c.direzioni;
             for (let i = 0; i < n; i++) {
@@ -396,10 +396,10 @@ export class LogicaParticelle {
             }
         }
 
-        // Nebbia: quasi assente per il testo (altrimenti le lettere si sfumano)
+        // Fog: almost absent for text (otherwise letters wash out)
         let alone = NEBBIA_RAGGIO * estensione;
         if (a_scena[0] === 'mandala') alone *= MANDALA_NEBBIA;
-        if (a_scena[0] === 'testo')   alone *= 0.08;  // testo: nebbia minima
+        if (a_scena[0] === 'testo')   alone *= 0.08;  // text: minimal fog
         const nebbia = this._c.nebbia;
         for (let i = 0; i < n; i++) {
             bersaglio[i*3]   += nebbia[i*3]   * alone;
@@ -407,7 +407,7 @@ export class LogicaParticelle {
             bersaglio[i*3+2] += nebbia[i*3+2] * alone;
         }
 
-        // Fluttuazione individuale (ridotta per testo)
+        // Individual fluctuation (reduced for text)
         const fluttScala = a_scena[0] === 'testo' ? 0.1 : 1.0;
         const freq = this._c.frequenze, fasi = this._c.fasi, ampl = this._c.ampiezze;
         for (let i = 0; i < n; i++) {
@@ -416,17 +416,17 @@ export class LogicaParticelle {
             bersaglio[i*3+2] += ampl[i] * Math.sin(ora * freq[i*3+2] + fasi[i*3+2]);
         }
 
-        // Corrente comune (campo di velocità coerente)
+        // Shared current (coherent velocity field)
         for (let i = 0; i < n; i++) {
-            const px = bersaglio[i*3]   * CORRENTE_SCALA;
-            const py = bersaglio[i*3+1] * CORRENTE_SCALA;
+            const px = bersaglio[i*3]   * CURRENT_SCALE;
+            const py = bersaglio[i*3+1] * CURRENT_SCALE;
             const tt = ora * CORRENTE_VELOCITA;
             bersaglio[i*3]   += Math.sin(py + tt)         * Math.cos(px * 0.6 + tt * 1.3) * CORRENTE_AMPIEZZA;
             bersaglio[i*3+1] += Math.sin(px + tt * 1.1)   * Math.cos(py * 0.6 + tt * 0.9) * CORRENTE_AMPIEZZA;
             bersaglio[i*3+2] += Math.sin(px * 0.8 + tt * 0.8) * Math.cos(py * 0.8 + tt * 1.2) * CORRENTE_AMPIEZZA;
         }
 
-        // Inerzia: ogni particella insegue il bersaglio con la sua pigrizia
+        // Inertia: each particle chases the target with its own laziness
         let pos = this._c.posizioni;
         if (!pos || pos.length !== n * 3) {
             pos = bersaglio.slice();
@@ -444,10 +444,10 @@ export class LogicaParticelle {
 
         const colori = this._colori(da_scena[0], a_scena[0], avanzamento, pos, ora);
 
-        return { posizioni: pos, colori , sfondo: this.sfondoColore(ora) };
+        return { posizioni: pos, colori , background: this.backgroundColor(ora) };
     }
 
-    // ---------------------------------------------------------------- interno: inizializzazione
+    // ---------------------------------------------------------------- internal: initialization
     _prepara(P) {
         const triangoli = this._triangoli;
         if (!triangoli) return;
@@ -455,7 +455,7 @@ export class LogicaParticelle {
         const rng = new RNG(7);
         const T = triangoli.length;
 
-        // Calcola le quote per triangolo (area-weighted con esponente)
+        // Compute per-triangle quotas (area-weighted with exponent)
         let conteggi;
         if (P) {
             const aree = new Float32Array(T);
@@ -482,7 +482,7 @@ export class LogicaParticelle {
                 conteggi[t] = Math.max(1, Math.round(peso[t] / somma * TOTALE_PARTICELLE));
                 totale += conteggi[t];
             }
-            // Aggiusta la differenza sui triangoli più grandi
+            // Adjust the remainder onto the larger triangles
             let diff = TOTALE_PARTICELLE - totale;
             if (diff !== 0) {
                 const ordine = Array.from({length: T}, (_, i) => i)
@@ -499,7 +499,7 @@ export class LogicaParticelle {
             conteggi.fill(q);
         }
 
-        // Espandi: una riga per particella (ripeti ogni triangolo conteggi[t] volte)
+        // Expand: one row per particle (repeat each triangle conteggi[t] times)
         let n = 0;
         for (let t = 0; t < T; t++) n += conteggi[t];
 
@@ -516,7 +516,7 @@ export class LogicaParticelle {
             }
         }
 
-        // Coordinate baricentriche casuali
+        // Random barycentric coordinates
         const pesi = new Float32Array(n * 3);
         for (let i = 0; i < n; i++) {
             let r0 = rng.next(), r1 = rng.next();
@@ -574,12 +574,12 @@ export class LogicaParticelle {
         });
     }
 
-    // ---------------------------------------------------------------- interno: forme
+    // ---------------------------------------------------------------- internal: shapes
     _forma_volto(pts, n) {
         const { idxA, idxB, idxC, pesi } = this._c;
         const out = new Float32Array(n * 3);
         if (!pts) {
-            // Fallback: nuvola di polvere se non c'è il volto
+            // Fallback: dust cloud if there is no face
             return this._forma_polvere(n);
         }
         for (let i = 0; i < n; i++) {
@@ -597,8 +597,8 @@ export class LogicaParticelle {
             return this._c.polvere;
         }
         const rng = new RNG(SEME_POLVERE);
-        const aspetto = aspettoSchermo();
-        const raggio  = raggioVisibile();
+        const aspetto = screenAspect();
+        const raggio  = visibleRadius();
         const pos = new Float32Array(n * 3);
         for (let i = 0; i < n; i++) {
             pos[i*3]   = CAM_TX + rng.normal() * raggio * POLVERE_AMPIEZZA * aspetto;
@@ -613,7 +613,7 @@ export class LogicaParticelle {
         anelli  = Math.max(Math.floor(anelli), 1);
         petali  = Math.max(Math.floor(petali), 2);
         const rng = new RNG(Math.floor(seed));
-        const ragMax = raggioVisibile();
+        const ragMax = visibleRadius();
         const conteggi = _riparti(n, anelli);
         const spaziatura = (0.82 / anelli) * ragMax;
         const sfogo = spaziatura * 0.45;
@@ -660,7 +660,7 @@ export class LogicaParticelle {
             inizio = fine;
         }
 
-        // Normalizza al raggio massimo visibile
+        // Normalize to the maximum visible radius
         let picco = 0;
         for (let i = 0; i < n; i++) if (Math.abs(raggi[i]) > picco) picco = Math.abs(raggi[i]);
         if (picco > 1e-6) for (let i = 0; i < n; i++) raggi[i] *= ragMax / picco;
@@ -683,7 +683,7 @@ export class LogicaParticelle {
             const r = raggi[i];
             pos[i*3]   = CAM_TX + r * Math.cos(a);
             pos[i*3+1] = CAM_TY + r * Math.sin(a);
-            // cupola verso l'osservatore al centro
+            // dome toward the viewer at the center
             pos[i*3+2] = Math.cos(Math.min(Math.abs(r) / ragMax, 1) * (Math.PI / 2)) * MANDALA_CUPOLA;
         }
         return pos;
@@ -710,7 +710,7 @@ export class LogicaParticelle {
         return this._forma_volto(pts, n);
     }
 
-    // ---------------------------------------------------------------- dissoluzione
+    // ---------------------------------------------------------------- dissolution
     _fuga(pos, bersaglio, pts, ora) {
         let fuga = this._c.fuga;
         const n = pos.length / 3;
@@ -746,7 +746,7 @@ export class LogicaParticelle {
         for (let i = 0; i < fuga.length; i++) fuga[i] *= ATTRITO_FUGA;
         this._c.fuga = fuga;
 
-        // Calcola grado di libertà (cricchetto: può solo crescere)
+        // Compute freedom degree (ratchet: can only grow)
         let libera = this._c.libera;
         if (!libera || libera.length !== n) libera = new Float32Array(n);
         for (let i = 0; i < n; i++) {
@@ -769,14 +769,14 @@ export class LogicaParticelle {
     }
 
     // ---------------------------------------------------------------- colori
-    /** La tonalita' scelta da Claude, in una versione profonda e una luminosa. */
+    /** The hue Claude chose, in a deep version and a bright one. */
     _tintaPersonale() {
         const h = ((this._c.mandala_tonalita % 360) + 360) % 360 / 360;
         const g = MANDALA_GRADIENTE[this._c.mandala_emozione]
             || MANDALA_GRADIENTE[MANDALA_EMOZIONE_DEFAULT];
         const mezza = (g.apertura / 2.0) / 360.0 * g.verso;
-        // I valori restano bassi come nella palette blu: sono la luce di UNA
-        // particella, e in fusione additiva dove si sovrappongono si somma.
+        // Values stay low as in the blue palette: they are the light of ONE
+        // particle, and in additive blending where they overlap they add up.
         return {
             fondo: _hsvToRgb((h - mezza + 1) % 1, Math.min(1, g.satFondo * INTENSITA_COLORE), 0.090),
             luce:  _hsvToRgb((h + mezza + 1) % 1, Math.min(1, g.satLuce  * INTENSITA_COLORE), 0.620),
@@ -784,11 +784,11 @@ export class LogicaParticelle {
     }
 
     /**
-     * Le due tinte fra cui pesca ogni particella.
+     * The two tints each particle draws from.
      *
-     * Il mandala e la sua dissoluzione usano la tinta personale PIENA: sono il
-     * momento in cui il colore di chi medita e' il soggetto. Tutte le altre
-     * forme la miscelano al blu nella misura decisa da tintaForza().
+     * The mandala and its dissolution use the FULL personal tint: they are the
+     * moment when the meditator's color is the subject. All other shapes mix
+     * it with blue to the degree decided by tintaForza().
      */
     _palette(tipo, ora = null) {
         const bluFondo = _acceso(PALETTE_CALMA.fondo);
@@ -797,7 +797,7 @@ export class LogicaParticelle {
             return { fondo: bluFondo, luce: bluLuce };
         }
         const p = this._tintaPersonale();
-        // la dissoluzione e' il mandala che si disfa: tiene il suo colore
+        // dissolution is the mandala coming apart: it keeps its color
         if (tipo === 'mandala' || tipo === 'dissoluzione') return p;
 
         const k = this.quantaTinta(ora);
@@ -826,7 +826,7 @@ export class LogicaParticelle {
         const sf   = this._c.scint_freq;
         const sfase = this._c.scint_fase;
 
-        // Calcola range Z per profondità
+        // Compute Z range for depth
         let zMin = Infinity, zMax = -Infinity;
         for (let i = 0; i < n; i++) {
             if (pos[i*3+2] < zMin) zMin = pos[i*3+2];

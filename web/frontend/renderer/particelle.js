@@ -1,41 +1,42 @@
 /**
- * particelle.js — setup Three.js per 13.664 particelle con fusione additiva.
+ * particelle.js — Three.js setup for 13,664 particles with additive blending.
  *
- * Equivalente del render pipeline di face_render + face_mat in TD:
- * THREE.Points con AdditiveBlending e colori per vertice.
+ * Equivalent of the face_render + face_mat render pipeline in TD:
+ * THREE.Points with AdditiveBlending and per-vertex colors.
  */
 
 import * as THREE from 'three';
 import { PostProcessing } from './post.js';
-import { larghezzaMondo, altezzaMondo } from './scena.js';
+import { worldWidth, worldHeight } from './scena.js';
 
-// Quanto e' grande una particella, in pixel — ed e' la leva vera sulla
-// luminosita', molto piu' del bagliore: in fusione additiva la luce la fa la
-// SOVRAPPOSIZIONE, e l'area cresce col quadrato.
+// How large a particle is, in pixels — and it is the real lever on
+// brightness, much more than bloom: in additive blending light comes from
+// OVERLAP, and area grows with the square.
 //
-// Il valore e' in pixel LOGICI e viene moltiplicato per il pixel ratio, cosi'
-// l'immagine e' la stessa sul portatile e sul proiettore. Attenzione pero' a
-// come si legge il numero: su uno schermo Retina il ratio e' 2, quindi 2 qui
-// significa 4 pixel reali di lato — SEDICI volte l'area di prima, quando ogni
-// particella era clampata a un pixel solo. La luminosita' cresce col quadrato,
-// e i primi tentativi (3, poi 2) erano entrambi troppo per questo.
+// The value is in LOGICAL pixels and is multiplied by the pixel ratio, so
+// the image is the same on a laptop and on the projector. Be careful how
+// you read the number though: on a Retina screen the ratio is 2, so 2 here
+// means 4 real pixels on a side — SIXTEEN times the earlier area, when each
+// particle was clamped to a single pixel. Brightness grows with the square,
+// and the first attempts (3, then 2) were both too much for that reason.
 //
-// Si gira anche dall'indirizzo, per tarare senza toccare il file:
-//   ?particelle=1.0    piu' vicino alla polvere spenta
-//   ?particelle=1.6    piu' vicino alla luce piena
-const DIMENSIONE_PARTICELLA = 1.0;
+// Also tunable from the URL, to calibrate without touching the file:
+//   ?particelle=1.0    closer to full light (previous value)
+//   ?particelle=0.7    closer to dust, more readable shapes
+const DIMENSIONE_PARTICELLA = 0.75;
 
-// Una manopola letta dall'indirizzo: ?particelle=2.4&esposizione=1.2
-// Serve a tarare la resa sul proiettore vero. Trovati i numeri, si scrivono
-// nelle costanti qui sopra: il parametro e' per provare, non per l'opera.
+// A knob read from the URL: ?particelle=2.4&esposizione=1.2
+// Used to calibrate look on the real projector. Once the numbers are found,
+// write them into the constants above: the query param is for trying, not
+// for the piece.
 //
-// E' ripetuta anche in renderer/post.js, e la ripetizione e' voluta. Metterla in comune in
-// scena.js sembrava piu' pulito e si e' rivelato un buco: il browser tiene i
-// moduli in cache e non li rivalida, quindi bastava una copia vecchia di
-// scena.js senza quell'export perche' l'import fallisse, app.js non partisse
-// MAI e l'interfaccia restasse con tutti i pulsanti inerti — senza un errore
-// a schermo. Sei righe ripetute costano meno di quel sintomo.
-function daIndirizzo(nome, predefinito) {
+// Also duplicated in renderer/post.js, and the duplication is intentional.
+// Sharing it in scena.js looked cleaner and turned out to be a hole: the
+// browser caches modules and does not revalidate them, so an old copy of
+// scena.js without that export was enough for the import to fail, app.js to
+// NEVER start, and the UI to leave every button inert — with no on-screen
+// error. Six repeated lines cost less than that symptom.
+function fromQuery(nome, predefinito) {
     try {
         const v = parseFloat(new URLSearchParams(location.search).get(nome));
         return Number.isFinite(v) && v > 0 ? v : predefinito;
@@ -44,9 +45,9 @@ function daIndirizzo(nome, predefinito) {
     }
 }
 
-export class RendererParticelle {
+export class ParticleRenderer {
     constructor(canvas) {
-        // Renderer WebGL
+        // WebGL renderer
         this._renderer = new THREE.WebGLRenderer({
             canvas,
             antialias: false,
@@ -56,44 +57,44 @@ export class RendererParticelle {
         this._renderer.toneMapping = THREE.NoToneMapping;
         this._renderer.setClearColor(0x000000, 1);
 
-        // Scena
+        // Scene
         this._scene = new THREE.Scene();
 
-        // Camera ortografica: frustum adattato al rapporto d'aspetto della finestra
-        const hw = larghezzaMondo() / 2;
-        const hh = altezzaMondo() / 2;
+        // Orthographic camera: frustum adapted to the window aspect ratio
+        const hw = worldWidth() / 2;
+        const hh = worldHeight() / 2;
         this._camera = new THREE.OrthographicCamera(-hw, hw, hh, -hh, -10, 10);
 
-        // Geometria particelle
+        // Particle geometry
         const n = 13664;
         this._geo = new THREE.BufferGeometry();
         this._posArr = new Float32Array(n * 3);
         this._colArr = new Float32Array(n * 3);
-        // Inizializza in posizione zero con colore neutro
+        // Initialize at origin with a neutral color
         this._geo.setAttribute('position', new THREE.BufferAttribute(this._posArr, 3));
         this._geo.setAttribute('color',    new THREE.BufferAttribute(this._colArr, 3));
 
-        // Materiale: fusione additiva senza depth test.
+        // Material: additive blending without depth test.
         //
-        // sizeAttenuation e' FALSE, e non e' un dettaglio. Lo shader dei punti
-        // di Three.js applica l'attenuazione solo con una camera PROSPETTICA;
-        // la nostra e' ortografica, quindi veniva ignorata e 'size' non era
-        // in unita' di mondo ma direttamente in pixel. Con size 0.021 la GPU
-        // alzava al minimo e ogni particella era UN PIXEL: misurato, 0.021 e
-        // 1.0 davano immagini identiche — stessa luminanza media, stessa
-        // percentuale di pixel accesi. L'opera rendeva circa un ottavo della
-        // luce che doveva, e nessuna manopola di esposizione poteva
-        // recuperarlo, perche' schiariva puntini isolati invece di farli
-        // sovrapporre. In fusione additiva e' la SOVRAPPOSIZIONE che fa la
-        // luce: qui sta la differenza con le particelle di TouchDesigner, che
-        // sono geometria vera e coprono piu' pixel ciascuna.
+        // sizeAttenuation is FALSE, and that is not a detail. Three.js's
+        // points shader applies attenuation only with a PERSPECTIVE camera;
+        // ours is orthographic, so it was ignored and 'size' was not in
+        // world units but directly in pixels. With size 0.021 the GPU
+        // clamped to the minimum and every particle was ONE PIXEL: measured,
+        // 0.021 and 1.0 produced identical images — same mean luminance, same
+        // percentage of lit pixels. The piece rendered about an eighth of the
+        // light it should have, and no exposure knob could recover it, because
+        // it brightened isolated dots instead of making them overlap. In
+        // additive blending OVERLAP is what makes the light: that is the
+        // difference from TouchDesigner particles, which are real geometry and
+        // cover more pixels each.
         //
-        // Dichiarandolo false, size e' in pixel e lo diciamo apposta. Va
-        // moltiplicato per il pixel ratio, altrimenti su uno schermo Retina le
-        // particelle coprirebbero meta' della superficie che coprono sul
-        // proiettore, e l'opera sarebbe piu' spenta proprio dove si lavora.
+        // Declaring it false, size is in pixels and we mean it. It must be
+        // multiplied by the pixel ratio, otherwise on a Retina screen
+        // particles would cover half the area they cover on the projector,
+        // and the piece would be dimmer exactly where you work.
         const mat = new THREE.PointsMaterial({
-            size: daIndirizzo('particelle', DIMENSIONE_PARTICELLA) * this._renderer.getPixelRatio(),
+            size: fromQuery('particelle', DIMENSIONE_PARTICELLA) * this._renderer.getPixelRatio(),
             vertexColors: true,
             blending: THREE.AdditiveBlending,
             depthTest: false,
@@ -106,27 +107,27 @@ export class RendererParticelle {
         const points = new THREE.Points(this._geo, mat);
         this._scene.add(points);
 
-        // Post-processing (bloom + vignetta + grana)
-        // Usa window.innerWidth/Height: getBoundingClientRect() può restituire
-        // 0 prima che il browser abbia calcolato il layout CSS.
+        // Post-processing (bloom + vignette + grain)
+        // Use window.innerWidth/Height: getBoundingClientRect() can return
+        // 0 before the browser has computed the CSS layout.
         const w = window.innerWidth  || 1280;
         const h = window.innerHeight || 720;
         this._post = new PostProcessing(this._renderer, this._scene, this._camera, w, h);
 
-        // Dissolvenza iniziale: il renderer parte nero, si accende con accendi()
+        // Initial fade: renderer starts black, lights up via lightsUp()
         this._t_accendi = null;
         this._durata_accendi = 3.0;
-        this._post.luminosita = 0;
+        this._post.brightness = 0;
 
-        // Risponde al resize
+        // Respond to resize
         this._onResize = this._onResize.bind(this);
         window.addEventListener('resize', this._onResize);
         this._onResize();
     }
 
     // ---------------------------------------------------------------- API
-    /** Aggiorna posizioni e colori delle particelle. */
-    aggiorna(posizioni, colori) {
+    /** Update particle positions and colors. */
+    update(posizioni, colori) {
         if (!posizioni || !colori) return;
         this._posArr.set(posizioni);
         this._colArr.set(colori);
@@ -134,45 +135,45 @@ export class RendererParticelle {
         this._geo.attributes.color.needsUpdate = true;
     }
 
-    /** Disegna il frame con post-processing. */
+    /** Draw the frame with post-processing. */
     render(tempo) {
-        // Gestisce la dissolvenza d'apertura
+        // Handle the opening fade
         if (this._t_accendi !== null) {
             const t = Math.min((tempo - this._t_accendi) / this._durata_accendi, 1);
-            this._post.luminosita = Math.pow(t, 2.2);
+            this._post.brightness = Math.pow(t, 2.2);
             if (t >= 1) this._t_accendi = null;
         }
         this._post.render(tempo);
     }
 
-    /** Il colore dell'alone di sfondo, che segue la tinta della sessione. */
-    sfondo(rgb) {
+    /** Background halo color, following the session tint. */
+    setBackground(rgb) {
         if (this._post) this._post.setSfondo(rgb);
     }
 
-    buio() {
-        this._post.luminosita = 0;
+    lightsOut() {
+        this._post.brightness = 0;
         this._t_accendi = null;
     }
 
-    accendi(durata = 3.0, ora = performance.now() / 1000) {
+    lightsUp(durata = 3.0, ora = performance.now() / 1000) {
         this._durata_accendi = durata;
         this._t_accendi = ora;
     }
 
-    // ---------------------------------------------------------------- interno
+    // ---------------------------------------------------------------- internal
     _onResize() {
         const w = window.innerWidth;
         const h = window.innerHeight;
         this._renderer.setSize(w, h);
         this._post.setSize(w, h);
-        // spostando la finestra fra il portatile e il proiettore il pixel
-        // ratio cambia: senza questo, le particelle cambierebbero dimensione
+        // moving the window between laptop and projector changes the pixel
+        // ratio: without this, particles would change size
         if (this._mat) {
-            this._mat.size = daIndirizzo('particelle', DIMENSIONE_PARTICELLA) * this._renderer.getPixelRatio();
+            this._mat.size = fromQuery('particelle', DIMENSIONE_PARTICELLA) * this._renderer.getPixelRatio();
         }
-        const hw = larghezzaMondo() / 2;
-        const hh = altezzaMondo() / 2;
+        const hw = worldWidth() / 2;
+        const hh = worldHeight() / 2;
         this._camera.left   = -hw;
         this._camera.right  =  hw;
         this._camera.top    =  hh;

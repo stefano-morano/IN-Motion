@@ -1,11 +1,11 @@
 """
-IN-Motion Web — backend FastAPI/WebSocket.
+IN-Motion Web — FastAPI/WebSocket backend.
 
-Il browser si collega su /ws, manda il racconto come primo messaggio,
-e poi ad ogni fotogramma manda i punti del viso. Qui gira la macchina
-a stati di esperienza.py e i comandi vengono rispediti al browser.
+The browser connects on /ws, sends the story as the first message,
+then each frame sends face points. The esperienza.py state machine
+runs here and commands are sent back to the browser.
 
-Avvio:
+Start:
     cd web/backend
     pip install -r requirements.txt
     uvicorn server:app --reload
@@ -22,7 +22,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Carica .env dalla root del progetto (due livelli sopra backend/)
+# Load .env from the project root (two levels above backend/)
 _ENV_PATH = Path(__file__).resolve().parent.parent.parent / '.env'
 load_dotenv(_ENV_PATH)
 
@@ -32,7 +32,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-# ------------------------------------------------------------------ percorsi
+# ------------------------------------------------------------------ paths
 BACKEND = Path(__file__).resolve().parent
 WEB = BACKEND.parent
 VISUALS = WEB.parent / "visuals"
@@ -40,19 +40,19 @@ FRONTEND = WEB / "frontend"
 LIBRERIA = VISUALS / "musica_libreria"
 ASSETS = WEB / "assets"
 
-# ------------------------------------------------------------------ inietta stub PRIMA di importare esperienza.py
-# esperienza.py fa `import musica`, `import stacco` e `import voce`: li
-# sostituiamo con versioni web che accodano eventi JSON per il browser invece
-# di usare sounddevice.
+# ------------------------------------------------------------------ inject stubs BEFORE importing esperienza.py
+# esperienza.py does `import musica`, `import stacco` and `import voce`: we
+# replace them with web versions that queue JSON events for the browser
+# instead of using sounddevice.
 #
-# L'ORDINE DI QUESTE RIGHE E' PARTE DEL MECCANISMO, non stile. VoceWS non e'
-# piu' uno stub vuoto: EREDITA dalla Voce vera, per riusarne cache, scelta
-# della voce e durate. Quindi va importato in una finestra precisa —
-#   dopo   che visuals/ e' nel path (senza, `import voce` non trova niente)
-#   dopo   che lo stub di musica c'e' (voce.py fa `import musica` in testa)
-#   prima  che il nome "voce" sia preso dallo stub (altrimenti VoceWS
-#          erediterebbe da se stessa)
-# Spostare una di queste righe rompe l'avvio, e l'errore non dice perche'.
+# THE ORDER OF THESE LINES IS PART OF THE MECHANISM, not style. VoceWS is no
+# longer an empty stub: it INHERITS from the real Voce, to reuse cache, voice
+# selection and durations. So it must be imported in a precise window —
+#   after  visuals/ is on the path (otherwise `import voce` finds nothing)
+#   after  the musica stub exists (voce.py does `import musica` at the top)
+#   before the name "voce" is taken by the stub (otherwise VoceWS
+#          would inherit from itself)
+# Moving any of these lines breaks startup, and the error does not say why.
 from musica_ws import MusicaWS, SAMPLE_RATE as _SR  # noqa: E402
 from stacco_ws import StaccoWS                       # noqa: E402
 
@@ -65,10 +65,10 @@ _stacco_stub = types.ModuleType("stacco")
 _stacco_stub.Stacco = StaccoWS
 sys.modules["stacco"] = _stacco_stub
 
-# Porta i moduli dei visuals nel path (esperienza, testi, occhi, mandala, voce…)
+# Put visuals modules on the path (esperienza, testi, occhi, mandala, voce…)
 sys.path.insert(0, str(VISUALS))
 
-# adesso, e non prima: qui dentro `import voce` trova quella vera
+# now, and not earlier: here `import voce` finds the real one
 from voce_ws import VoceWS                           # noqa: E402
 
 _voce_stub = types.ModuleType("voce")
@@ -83,8 +83,8 @@ from ascolto_ws import AscoltoWS  # noqa: E402
 # ------------------------------------------------------------------ app
 app = FastAPI()
 
-# CORS: permette al browser di chiamare /analisi (stesso host, ma necessario
-# per localhost durante lo sviluppo)
+# CORS: let the browser call /analisi (same host, but needed
+# for localhost during development)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -96,44 +96,44 @@ app.mount("/musica", StaticFiles(directory=str(LIBRERIA)), name="musica")
 app.mount("/assets", StaticFiles(directory=str(ASSETS)), name="assets")
 
 
-# ------------------------------------------------------------------ analisi emotiva
-_ANTHROPIC = anthropic.Anthropic()   # legge ANTHROPIC_API_KEY dall'env
+# ------------------------------------------------------------------ emotion analysis
+_ANTHROPIC = anthropic.Anthropic()   # reads ANTHROPIC_API_KEY from env
 
 _PROMPT_ANALISI = """\
-Sei un esperto di psicologia delle emozioni e comunicazione non verbale.
+You are an expert in emotion psychology and nonverbal communication.
 
-Profilo dell'utente:
-- Nome: {nome}
-- Età: {eta} anni
-- Sesso: {sesso}
-- Obiettivo di meditazione: {obiettivo}
+User profile:
+- Name: {nome}
+- Age: {eta}
+- Gender: {sesso}
+- Meditation goal: {obiettivo}
 
-Durante l'esperienza ({durata} min) l'utente ha raccontato:
+During the experience ({durata} min) the user shared:
 "{racconto}"
 
-Il riconoscimento facciale in tempo reale ha misurato:
-- Valenza media: {valenza:.2f}  (-1 = negativa, +1 = positiva)
-- Arousal medio: {arousal:.2f}  (0 = calmo, 1 = attivato)
-- Sorriso autentico Duchenne: {duchenne:.2f}
-- Tensione sopraccigliare: {brow:.2f}
-- Arco emotivo: {arco}  (come è cambiata la valenza nel tempo)
-- Campioni rilevati: {n_campioni}
+Real-time facial recognition measured:
+- Mean valence: {valenza:.2f}  (-1 = negative, +1 = positive)
+- Mean arousal: {arousal:.2f}  (0 = calm, 1 = activated)
+- Authentic Duchenne smile: {duchenne:.2f}
+- Brow tension: {brow:.2f}
+- Emotional arc: {arco}  (how valence changed over time)
+- Samples collected: {n_campioni}
 
-Tieni conto del profilo e dell'obiettivo dichiarato per personalizzare l'analisi.
-Considera sfumature come ironia, rabbia repressa, tristezza mascherata, ambivalenza.
+Take the profile and stated goal into account to personalize the analysis.
+Consider nuances such as irony, suppressed anger, masked sadness, ambivalence.
 
-Rispondi SOLO con un oggetto JSON valido, senza testo aggiuntivo:
+Reply ONLY with a valid JSON object, no extra text:
 {{
-  "emozione_primaria": "nome emozione principale",
-  "sfumature": ["eventuale sfumatura 1", "eventuale sfumatura 2"],
+  "emozione_primaria": "main emotion name",
+  "sfumature": ["optional nuance 1", "optional nuance 2"],
   "intensita": 0.0,
-  "interpretazione": "analisi breve in 2-3 frasi personalizzata per {nome}"
+  "interpretazione": "brief analysis in 2-3 sentences personalized for {nome}"
 }}
 """
 
 @app.post("/analisi")
 async def analisi_emozioni(body: dict = Body(...)):
-    """Riceve dati facciali + racconto + profilo, chiama Claude, restituisce analisi emotiva."""
+    """Receive facial data + story + profile, call Claude, return emotion analysis."""
     racconto      = (body.get("racconto") or "")[:500]
     riflessione   = (body.get("riflessione") or "")[:400]
     emozioni      = body.get("emozioni") or {}
@@ -141,31 +141,31 @@ async def analisi_emozioni(body: dict = Body(...)):
     durata        = body.get("durata_minuti", 0)
     profilo       = body.get("profilo") or {}
 
-    # Arricchisce il prompt se c'è anche la riflessione post
+    # Enrich the prompt if there is also a post reflection
     contesto_post = ""
     if riflessione:
         vPost = emozioni_post.get("valenza_media", None)
         aPost = emozioni_post.get("arousal_medio", None)
         contesto_post = f"""
-Dopo la meditazione l'utente ha riflettuto:
+After meditation the user reflected:
 "{riflessione}"
-Dati facciali post-meditazione:
-- Valenza: {vPost:.2f if vPost is not None else 'n/d'}
-- Arousal: {aPost:.2f if aPost is not None else 'n/d'}
+Post-meditation facial data:
+- Valence: {vPost:.2f if vPost is not None else 'n/a'}
+- Arousal: {aPost:.2f if aPost is not None else 'n/a'}
 """
 
     prompt = _PROMPT_ANALISI.format(
-        nome        = profilo.get("nome", "utente"),
+        nome        = profilo.get("nome", "user"),
         eta         = profilo.get("eta", "?"),
-        sesso       = profilo.get("sesso", "non specificato"),
-        obiettivo   = profilo.get("obiettivo", "(non specificato)")[:300],
-        racconto    = racconto or "(non fornito)",
+        sesso       = profilo.get("sesso", "unspecified"),
+        obiettivo   = profilo.get("obiettivo", "(unspecified)")[:300],
+        racconto    = racconto or "(not provided)",
         durata      = durata,
         valenza     = emozioni.get("valenza_media",   0.0),
         arousal     = emozioni.get("arousal_medio",   0.0),
         duchenne    = emozioni.get("sorriso_genuino", 0.0),
         brow        = emozioni.get("tensione_brow",   0.0),
-        arco        = emozioni.get("arco_emotivo",    "sconosciuto"),
+        arco        = emozioni.get("arco_emotivo",    "unknown"),
         n_campioni  = emozioni.get("n_campioni",       0),
     ) + contesto_post
 
@@ -176,7 +176,7 @@ Dati facciali post-meditazione:
             messages=[{"role": "user", "content": prompt}],
         )
         testo = risposta.content[0].text.strip()
-        # Estrai il JSON dalla risposta
+        # Extract JSON from the response
         import re
         match = re.search(r'\{.*\}', testo, re.DOTALL)
         analisi = json.loads(match.group()) if match else {"interpretazione": testo}
@@ -189,7 +189,7 @@ Dati facciali post-meditazione:
 
 @app.get("/firebase-config")
 async def firebase_config():
-    """Espone la configurazione Firebase letta dal .env al frontend."""
+    """Expose the Firebase config read from .env to the frontend."""
     return JSONResponse({
         "apiKey":            os.getenv("FIREBASE_API_KEY", ""),
         "authDomain":        os.getenv("FIREBASE_AUTH_DOMAIN", ""),
@@ -201,15 +201,15 @@ async def firebase_config():
 
 
 @app.get("/voce/{nome}")
-def voce_clip(nome: str):
-    """Una clip della guida vocale, dalla cache condivisa con la versione
-    desktop (visuals/voce_cache/).
+def voice_clip(nome: str):
+    """A spoken-guide clip, from the cache shared with the desktop
+    version (visuals/voce_cache/).
 
-    Il nome e' l'impronta che la calcola: sha1 di firma + testo parlato,
-    quindi non e' indovinabile e non ci si puo' arrivare da fuori. Lo si
-    ricontrolla comunque — un nome che contenga separatori di percorso
-    uscirebbe dalla cartella, ed e' il tipo di buco che non si lascia aperto
-    solo perche' il server gira in locale."""
+    The name is the fingerprint that computes it: sha1 of signature + spoken
+    text, so it is not guessable and cannot be reached from outside. Still
+    re-checked — a name containing path separators would escape the folder,
+    and that is the kind of hole you do not leave open just because the
+    server runs locally."""
     if not nome.endswith(".wav") or "/" in nome or "\\" in nome or ".." in nome:
         return JSONResponse({"errore": "nome non valido"}, status_code=400)
     percorso = (VISUALS / "voce_cache" / nome).resolve()
@@ -219,17 +219,17 @@ def voce_clip(nome: str):
 
 
 @app.get("/mandala/ultimo")
-def mandala_ultimo():
-    """Il mandala della sessione appena finita, da portare via.
+def latest_mandala():
+    """The mandala from the session that just ended, to take away.
 
-    Il file esiste gia': _salva_immagine() in esperienza.py lo scrive in un
-    thread appena i parametri sono decisi, ed essendo esperienza.py condivisa
-    lo fa anche qui. Mancava solo il modo di prenderlo — a schermo il mandala
-    e' fatto di 13.664 particelle che si muovono, questo e' lo stesso disegno
-    con 260.000 particelle ferme, a 2400x2400.
+    The file already exists: _salva_immagine() in esperienza.py writes it in a
+    thread as soon as parameters are decided, and since esperienza.py is shared
+    it does so here too. Only the way to fetch it was missing — on screen the
+    mandala is 13,664 moving particles; this is the same drawing with 260,000
+    still particles, at 2400x2400.
 
-    Si serve il piu' recente: l'app e' locale e una sessione alla volta,
-    quindi il piu' recente e' quello di chi ha appena finito.
+    Serve the most recent: the app is local and one session at a time,
+    so the most recent is the one from whoever just finished.
     """
     cartella = VISUALS / "mandala"
     if not cartella.is_dir():
@@ -241,17 +241,17 @@ def mandala_ultimo():
     return FileResponse(str(ultimo), media_type="image/png", filename=ultimo.name)
 
 
-# I file del frontend si servono SENZA CACHE, e non e' pigrizia.
+# Frontend files are served with NO CACHE, and that is not laziness.
 #
-# Il browser tiene i moduli ES in cache in modo aggressivo e non li rivalida
-# nemmeno cambiando l'indirizzo della pagina. Modificando un file e
-# ricaricando si finisce con meta' dei moduli nuovi e meta' vecchi — e se uno
-# nuovo importa qualcosa che nella copia vecchia non c'e' ancora, l'import
-# fallisce, app.js non parte MAI e a schermo non compare nessun errore: si
-# vede solo un'interfaccia in cui i pulsanti non fanno niente. E' un sintomo
-# che non somiglia per niente alla causa, ed e' gia' costato una serata.
+# The browser caches ES modules aggressively and does not revalidate them
+# even when you change the page address. Edit a file and reload and you end
+# up with half new modules and half old — and if a new one imports something
+# the old copy does not have yet, the import fails, app.js NEVER starts, and
+# no error appears on screen: you only see an interface where buttons do
+# nothing. That symptom looks nothing like the cause, and it already cost
+# an evening.
 #
-# Qui non c'e' banda da risparmiare: il server e' sulla stessa macchina.
+# There is no bandwidth to save here: the server is on the same machine.
 _SENZA_CACHE = {"Cache-Control": "no-store, must-revalidate"}
 
 
@@ -267,22 +267,22 @@ async def static(path: str):
     return FileResponse(str(FRONTEND / "index.html"), headers=_SENZA_CACHE)
 
 # ------------------------------------------------------------------ helpers
-RACCONTO_DEFAULT = "oggi mi sento agitato e non riesco a fermare i pensieri"
+RACCONTO_DEFAULT = "today mi sento agitato e non riesco a fermare i pensieri"
 
 
-def _arricchisci_racconto(racconto: str, profilo: dict) -> str:
+def _enrich_story(racconto: str, profilo: dict) -> str:
     if not profilo:
         return racconto
     nome = profilo.get("nome", "")
     obiettivo = profilo.get("obiettivo", "")
     if obiettivo:
-        return f"{racconto}\n[Profilo: {nome}, obiettivo: {obiettivo}]"
+        return f"{racconto}\n[Profile: {nome}, goal: {obiettivo}]"
     return racconto
 
 
-class _Punto:
-    """Wrapper leggero per rendere le coordinate [[x,y,z]] compatibili
-    con i moduli occhi.py e movimento.py che si aspettano .x .y .z."""
+class _Point:
+    """Light wrapper so [[x,y,z]] coordinates are compatible
+    with occhi.py and movimento.py modules that expect .x .y .z."""
     __slots__ = ("x", "y", "z")
 
     def __init__(self, xyz):
@@ -291,29 +291,39 @@ class _Punto:
         self.z = float(xyz[2])
 
 
-def _adatta_punti(lista):
+def _adapt_points(lista):
     if not lista:
         return None
-    return [_Punto(p) for p in lista]
+    return [_Point(p) for p in lista]
 
 
-class _Sessione:
-    """Stato condiviso fra il thread dell'esperienza e il loop WebSocket."""
+class _Session:
+    """Shared state between the experience thread and the WebSocket loop."""
 
     def __init__(self):
         self._punti = None
+        self._blink = None
         self._lock = threading.Lock()
         self._audio: queue.SimpleQueue = queue.SimpleQueue()
         self.riflessione_inviata = threading.Event()
         self.risultati_visti = threading.Event()
 
-    def set_punti(self, raw):
+    def set_punti(self, raw, blink=None):
         with self._lock:
             self._punti = raw
+            if blink is not None:
+                try:
+                    self._blink = float(blink)
+                except (TypeError, ValueError):
+                    pass
 
     def get_punti(self):
         with self._lock:
             return self._punti
+
+    def get_blink(self):
+        with self._lock:
+            return self._blink
 
     def aggiungi_audio(self, dati: bytes):
         self._audio.put(dati)
@@ -338,14 +348,14 @@ async def ws_handler(ws: WebSocket):
     await ws.accept()
 
     coda: queue.SimpleQueue = queue.SimpleQueue()
-    stato = _Sessione()
+    stato = _Session()
 
     scena = ScenaWS(coda)
     musica = MusicaWS(coda, "principale")
     tappeto = MusicaWS(coda, "tappeto")
     ascolto = AscoltoWS(coda, stato)
 
-    # 1. Pronto, poi aspetta "inizia" o "racconto" (timeout 5 min)
+    # 1. Ready, then wait for "start" or "racconto" (5 min timeout)
     await ws.send_json({"tipo": "pronto"})
     racconto = ""
     profilo_utente: dict = {}
@@ -355,17 +365,17 @@ async def ws_handler(ws: WebSocket):
         profilo_utente = msg.get("profilo") or {}
         if tipo == "racconto":
             racconto = msg.get("testo") or RACCONTO_DEFAULT
-        elif tipo != "inizia":
+        elif tipo not in ("start", "inizia"):
             print(f"racconto: messaggio inatteso ({tipo!r}), uso default")
             racconto = RACCONTO_DEFAULT
     except Exception as exc:
         print(f"racconto: errore/timeout ({exc}), uso default")
         racconto = RACCONTO_DEFAULT
 
-    racconto = _arricchisci_racconto(racconto, profilo_utente)
+    racconto = _enrich_story(racconto, profilo_utente)
     print(f'racconto: "{racconto[:120]}"' if racconto else "racconto: (in attesa dal browser)")
 
-    # 2. Avvia il ciclo dell'esperienza in un thread separato
+    # 2. Start the experience loop in a separate thread
     stop_ev = threading.Event()
     esp_ref: dict = {"esp": None}
 
@@ -375,10 +385,11 @@ async def ws_handler(ws: WebSocket):
                 scena, racconto, ascolto, musica=musica, tappeto=tappeto,
                 voce=VoceWS(coda, (tappeto, musica)),
                 sincronia=stato,
+                nome=(profilo_utente.get("nome") or "").strip() or None,
             )
             esp_ref["esp"] = esp
-            # Come visuals/main.py: sintetizza le scritte fisse in sottofondo.
-            # Con voce_cache vuota, senza questo le clip non esistono e di() resta muto.
+            # Like visuals/main.py: synthesize fixed lines in the background.
+            # With an empty voce_cache, without this the clips do not exist and di() stays mute.
             try:
                 esp.prepara_voce()
             except Exception as exc:
@@ -389,8 +400,8 @@ async def ws_handler(ws: WebSocket):
                 print(f"tappeto: prepara fallita ({exc})")
             esp.avvia(time.time())
             while not esp.finita and not stop_ev.is_set():
-                punti = _adatta_punti(stato.get_punti())
-                esp.aggiorna(time.time(), punti)
+                punti = _adapt_points(stato.get_punti())
+                esp.aggiorna(time.time(), punti, blink=stato.get_blink())
                 time.sleep(1 / 30)
         except Exception as exc:
             import traceback
@@ -401,17 +412,17 @@ async def ws_handler(ws: WebSocket):
 
     threading.Thread(target=_loop, daemon=True).start()
 
-    # 3. Pump WebSocket: svuota la coda in uscita, ricevi i messaggi in entrata
+    # 3. WebSocket pump: drain the outbound queue, receive inbound messages
     try:
         while True:
-            # Manda tutti gli eventi pendenti al browser
+            # Send all pending events to the browser
             while True:
                 try:
                     await ws.send_json(coda.get_nowait())
                 except queue.Empty:
                     break
 
-            # Aspetta il prossimo messaggio (breve timeout per non bloccare)
+            # Wait for the next message (short timeout so we do not block)
             try:
                 raw = await asyncio.wait_for(ws.receive(), timeout=0.020)
             except asyncio.TimeoutError:
@@ -423,15 +434,15 @@ async def ws_handler(ws: WebSocket):
                 continue
 
             if raw.get("bytes"):
-                # Audio grezzo da MediaRecorder (WebM/Opus)
+                # Raw audio from MediaRecorder (WebM/Opus)
                 stato.aggiungi_audio(raw["bytes"])
             elif raw.get("text"):
                 try:
                     dati = json.loads(raw["text"])
                     if dati.get("tipo") == "frame":
-                        stato.set_punti(dati.get("punti"))
+                        stato.set_punti(dati.get("punti"), blink=dati.get("blink"))
                     elif dati.get("tipo") == "racconto":
-                        testo = _arricchisci_racconto(
+                        testo = _enrich_story(
                             dati.get("testo") or RACCONTO_DEFAULT,
                             dati.get("profilo") or profilo_utente,
                         )

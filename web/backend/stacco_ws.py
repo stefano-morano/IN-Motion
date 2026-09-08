@@ -1,18 +1,18 @@
 """
-StaccoWS — versione web di stacco.Stacco.
+StaccoWS — web version of stacco.Stacco.
 
-Invece di agire sull'audio Python, manda un evento al browser che
-gestisce i fade e sintetizza la campanella con Web Audio API.
+Instead of acting on Python audio, it sends an event to the browser which
+handles the fades and synthesizes the bell with the Web Audio API.
 
-Viene iniettato in sys.modules['stacco'] prima che esperienza.py
-possa importare il modulo originale (che richiederebbe sounddevice).
+Injected into sys.modules['stacco'] before esperienza.py can import the
+original module (which would require sounddevice).
 """
 
 
 class StaccoWS:
     def __init__(self, sorgenti, sr=44100, attenuazione=0.3,
                  discesa=2.2, respiro=1.4, ritorno=2.2):
-        # Prende la coda dalla prima sorgente MusicaWS
+        # Take the queue from the first MusicaWS source
         self._coda = None
         for s in sorgenti:
             c = getattr(s, "_coda", None)
@@ -35,7 +35,7 @@ class StaccoWS:
             })
 
     def aggiorna(self, ora):
-        # Il browser gestisce i tempi internamente
+        # The browser handles timing internally
         pass
 
     def annulla(self, ora=None):

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -16,13 +16,13 @@
       height: 100vh;
     }
 
-    /* Webcam nascosta: serve solo per MediaPipe, non per lo spettatore */
+    /* Webcam hidden: used only for MediaPipe, not for the viewer */
     #video {
       position: absolute; top: -9999px; left: -9999px;
       width: 640px; height: 480px;
     }
 
-    /* Overlay di ingresso */
+    /* Entry overlay */
     #ui {
       position: fixed;
       bottom: 0; left: 0; right: 0;
@@ -33,14 +33,14 @@
       background: linear-gradient(transparent, rgba(0,0,0,0.85));
       transition: opacity 0.5s;
     }
-    #ui.nascosto { opacity: 0; pointer-events: none; }
+    #ui.hidden { opacity: 0; pointer-events: none; }
 
     #ui-step1 {
       flex: 1;
       display: flex;
       justify-content: center;
     }
-    #ui-step1.nascosto { display: none; }
+    #ui-step1.hidden { display: none; }
 
     #ui-racconto {
       display: none;
@@ -48,7 +48,7 @@
       align-items: flex-end;
       gap: 0.75rem;
     }
-    #ui-racconto.visibile {
+    #ui-racconto.visible {
       display: flex;
     }
 
@@ -99,12 +99,12 @@
         box-shadow 0.35s ease,
         transform 0.25s ease;
     }
-    #inizia {
+    #start {
       letter-spacing: 0.32em;
       text-indent: 0.32em;
       padding: 1rem 3rem;
     }
-    #btn-fine-riflessione {
+    #btn-end-reflection {
       letter-spacing: 0.22em;
       text-indent: 0.22em;
       padding: 0.85rem 2.5rem;
@@ -165,7 +165,7 @@
     }
     #continua:hover { background: rgba(255,255,255,0.22); }
 
-    /* Controlli in alto a sinistra (colonna) */
+    /* Controls top-left (column) */
     #controls-left {
       position: fixed;
       top: 1rem;
@@ -181,7 +181,7 @@
       display: flex;
       align-items: center;
     }
-    .ctrl-item.aperto {
+    .ctrl-item.open {
       z-index: 30;
     }
     .btn-symbol {
@@ -222,7 +222,7 @@
     .btn-symbol:active {
       transform: translateY(0) scale(0.94);
     }
-    .btn-symbol.attivo .ctrl-symbol {
+    .btn-symbol.active .ctrl-symbol {
       opacity: 0.38;
       filter: grayscale(0.6) drop-shadow(0 0 4px rgba(255, 100, 100, 0.25));
     }
@@ -247,14 +247,14 @@
       z-index: 120;
       pointer-events: auto;
     }
-    .ctrl-flyout.aperto { display: flex; }
-    #utente-flyout {
+    .ctrl-flyout.open { display: flex; }
+    #user-flyout {
       flex-direction: column;
       align-items: flex-start;
       gap: 0.35rem;
       padding: 0.55rem 0.75rem;
     }
-    #utente-nome {
+    #user-name {
       color: rgba(255,255,255,0.45);
       font-size: 0.68rem;
       max-width: 140px;
@@ -279,17 +279,17 @@
       accent-color: rgba(255, 255, 255, 0.55);
       cursor: pointer;
     }
-    #ctrl-item-profilo {
+    #ctrl-item-profile {
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.35s;
     }
-    #ctrl-item-profilo.visibile {
+    #ctrl-item-profile.visible {
       opacity: 1;
       pointer-events: auto;
     }
 
-    /* Modal istruzioni */
+    /* Instructions modal */
     #modal-info {
       display: none;
       position: fixed;
@@ -299,7 +299,7 @@
       align-items: center;
       justify-content: center;
     }
-    #modal-info.visibile { display: flex; }
+    #modal-info.visible { display: flex; }
     #modal-box {
       background: rgba(10,15,30,0.97);
       border: 1px solid rgba(255,255,255,0.15);
@@ -320,7 +320,7 @@
     }
     #modal-box ol { padding-left: 1.2rem; }
     #modal-box li { margin-bottom: 0.5rem; }
-    #modal-chiudi {
+    #modal-close {
       margin-top: 1.5rem;
       display: block;
       width: 100%;
@@ -333,7 +333,7 @@
       cursor: pointer;
       transition: background 0.2s;
     }
-    #modal-chiudi:hover { background: rgba(255,255,255,0.20); }
+    #modal-close:hover { background: rgba(255,255,255,0.20); }
 
     /* Login overlay */
     #login-overlay {
@@ -346,7 +346,7 @@
       justify-content: center;
       transition: opacity 0.4s;
     }
-    #login-overlay.nascosto { opacity: 0; pointer-events: none; display: none; }
+    #login-overlay.hidden { opacity: 0; pointer-events: none; display: none; }
     #login-box {
       width: 340px;
       background: rgba(10,14,28,0.96);
@@ -369,14 +369,14 @@
       height: auto;
       margin: 0 auto 0.6rem;
     }
-    #login-box .sottotitolo {
+    #login-box .subtitle {
       color: rgba(255,255,255,0.35);
       font-size: 0.75rem;
       text-align: center;
       margin-bottom: 1.5rem;
       letter-spacing: 0.05em;
     }
-    /* Tab Accedi / Registrati */
+    /* Sign-in / Sign-up tabs */
     #login-tabs {
       display: flex;
       border-bottom: 1px solid rgba(255,255,255,0.12);
@@ -394,12 +394,12 @@
       margin-bottom: -1px;
       transition: color 0.2s, border-color 0.2s;
     }
-    .login-tab.attivo {
+    .login-tab.active {
       color: #fff;
       border-bottom-color: rgba(255,255,255,0.60);
     }
-    /* Campi form */
-    .campo-auth {
+    /* Form fields */
+    .auth-field {
       width: 100%;
       background: rgba(255,255,255,0.06);
       border: 1px solid rgba(255,255,255,0.15);
@@ -412,9 +412,9 @@
       box-sizing: border-box;
       transition: border-color 0.2s;
     }
-    .campo-auth::placeholder { color: rgba(255,255,255,0.30); }
-    .campo-auth:focus { border-color: rgba(255,255,255,0.40); }
-    /* Pulsante submit */
+    .auth-field::placeholder { color: rgba(255,255,255,0.30); }
+    .auth-field:focus { border-color: rgba(255,255,255,0.40); }
+    /* Submit button */
     #btn-submit-auth {
       width: 100%;
       background: rgba(255,255,255,0.14);
@@ -429,7 +429,7 @@
       margin-bottom: 0.5rem;
     }
     #btn-submit-auth:hover { background: rgba(255,255,255,0.22); }
-    /* Link password dimenticata */
+    /* Forgot-password link */
     #link-reset {
       display: block;
       text-align: right;
@@ -440,8 +440,8 @@
       text-decoration: underline;
     }
     #link-reset:hover { color: rgba(255,255,255,0.65); }
-    /* Separatore */
-    .separatore {
+    /* Separator */
+    .separator {
       display: flex;
       align-items: center;
       gap: 0.75rem;
@@ -449,13 +449,13 @@
       font-size: 0.75rem;
       margin: 0.75rem 0;
     }
-    .separatore::before, .separatore::after {
+    .separator::before, .separator::after {
       content: '';
       flex: 1;
       height: 1px;
       background: rgba(255,255,255,0.12);
     }
-    /* Pulsante Google */
+    /* Google button */
     #btn-google {
       display: flex;
       align-items: center;
@@ -474,7 +474,7 @@
     }
     #btn-google:hover { background: #f0f0f0; }
     #btn-google:active { transform: scale(0.97); }
-    #login-errore {
+    #login-error {
       margin-top: 0.75rem;
       color: rgba(255,100,100,0.85);
       font-size: 0.78rem;
@@ -489,10 +489,10 @@
       text-align: center;
     }
 
-    /* Info utente — ora dentro #controls-left */
+    /* User info — now inside #controls-left */
 
-    /* ---------------------------------------------------------------- Testo sessione (visibile durante la meditazione) */
-    #testo-sessione {
+    /* ---------------------------------------------------------------- Session text (visible during meditation) */
+    #session-text {
       position: fixed;
       bottom: 2rem;
       left: 50%;
@@ -510,9 +510,9 @@
       transition: opacity 1.5s;
       line-height: 1.6;
     }
-    #testo-sessione.visibile { opacity: 1; }
+    #session-text.visible { opacity: 1; }
 
-    #ui-riflessione {
+    #ui-reflection {
       position: fixed;
       bottom: 5.5rem;
       left: 50%;
@@ -522,12 +522,12 @@
       opacity: 0;
       transition: opacity 0.5s;
     }
-    #ui-riflessione.visibile {
+    #ui-reflection.visible {
       opacity: 1;
       pointer-events: auto;
     }
 
-    /* ---------------------------------------------------------------- Pulsante microfono */
+    /* ---------------------------------------------------------------- Microphone button */
     .btn-mic {
       flex: 0 0 auto;
       background: rgba(255,255,255,0.07);
@@ -549,8 +549,8 @@
     }
     @keyframes pulse-mic { 0%,100%{ opacity:1 } 50%{ opacity:0.6 } }
 
-    /* ---------------------------------------------------------------- Pannelli modali (post, risultati, calendario) */
-    .pannello-modale {
+    /* ---------------------------------------------------------------- Modal panels (post, results, calendar) */
+    .modal-panel {
       position: fixed;
       inset: 0;
       background: rgba(0,0,0,0.94);
@@ -560,17 +560,17 @@
       justify-content: center;
       overflow-y: auto;
     }
-    .pannello-modale.visibile { display: flex; }
+    .modal-panel.visible { display: flex; }
 
-    /* Durante l'esperienza: overlay in basso, volto e musica restano visibili */
-    .pannello-modale.overlay-esperienza {
+    /* During the experience: bottom overlay; face and music stay visible */
+    .modal-panel.overlay-esperienza {
       background: linear-gradient(transparent 0%, rgba(0,0,0,0.35) 35%, rgba(0,0,0,0.88) 100%);
       align-items: flex-end;
       justify-content: center;
       padding: 0 1rem 1.5rem;
       pointer-events: none;
     }
-    .pannello-modale.overlay-esperienza .pannello-box {
+    .modal-panel.overlay-esperienza .panel-box {
       pointer-events: auto;
       width: min(640px, 96vw);
       max-height: 72vh;
@@ -579,7 +579,7 @@
       backdrop-filter: blur(8px);
     }
 
-    .pannello-box {
+    .panel-box {
       width: min(580px, 92vw);
       background: rgba(8,12,24,0.98);
       border: 1px solid rgba(255,255,255,0.10);
@@ -588,7 +588,7 @@
       color: #fff;
       margin: auto;
     }
-    .pannello-box h2 {
+    .panel-box h2 {
       font-size: 0.95rem;
       font-weight: 300;
       letter-spacing: 0.18em;
@@ -596,32 +596,32 @@
       margin-bottom: 1.5rem;
       color: rgba(255,255,255,0.75);
     }
-    #panel-risultati .pannello-box {
-      width: min(520px, 94vw);
-      max-height: min(88vh, 640px);
+    #panel-results .panel-box {
+      width: min(640px, 96vw);
+      max-height: min(90vh, 760px);
       overflow-y: auto;
       padding: 1.25rem 1.35rem 1rem;
     }
-    #panel-risultati .pannello-box h2 {
+    #panel-results .panel-box h2 {
       margin-bottom: 0.85rem;
       font-size: 0.82rem;
     }
-    /* il pulsante del mandala e' un <a download>, non un <button>: senza
-       questo si siederebbe sulla linea di base invece di allinearsi agli altri */
-    #btn-mandala-scarica {
+    /* the mandala button is an <a download>, not a <button>: without
+       this it would sit on the baseline instead of aligning with the others */
+    #btn-mandala-download {
       display: inline-flex;
       align-items: center;
       justify-content: center;
       text-decoration: none;
     }
-    #panel-risultati .btn-riga {
+    #panel-results .btn-row {
       margin-top: 0.5rem;
       position: sticky;
       bottom: 0;
       background: linear-gradient(transparent, rgba(8,12,24,0.98) 30%);
       padding-top: 0.5rem;
     }
-    .pannello-desc {
+    .panel-desc {
       color: rgba(255,255,255,0.40);
       font-size: 0.82rem;
       text-align: center;
@@ -629,7 +629,7 @@
       line-height: 1.6;
     }
 
-    /* Post-meditazione */
+    /* Post-meditation */
     #testo-post {
       width: 100%;
       background: rgba(255,255,255,0.06);
@@ -658,8 +658,8 @@
       font-style: italic;
     }
 
-    /* Pulsanti pannello */
-    .btn-pannello {
+    /* Panel buttons */
+    .panel-btn {
       width: 100%;
       background: rgba(255,255,255,0.10);
       border: 1px solid rgba(255,255,255,0.25);
@@ -672,46 +672,68 @@
       transition: background 0.2s;
       margin-top: 0.5rem;
     }
-    .btn-pannello:hover { background: rgba(255,255,255,0.18); }
-    .btn-pannello.secondario {
+    .panel-btn:hover { background: rgba(255,255,255,0.18); }
+    .panel-btn.secondary {
       background: transparent;
       border-color: rgba(255,255,255,0.12);
       color: rgba(255,255,255,0.45);
     }
-    .btn-pannello.secondario:hover { color: rgba(255,255,255,0.75); background: rgba(255,255,255,0.06); }
-    .btn-riga { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
-    .btn-riga .btn-pannello { margin-top: 0; }
+    .panel-btn.secondary:hover { color: rgba(255,255,255,0.75); background: rgba(255,255,255,0.06); }
+    .btn-row { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+    .btn-row .panel-btn { margin-top: 0; }
 
-    /* Grafici */
-    .grafico-wrap {
-      margin-bottom: 0.75rem;
+    /* Charts */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem 0.85rem;
+      margin-bottom: 0.85rem;
     }
-    .grafico-wrap h3 {
-      font-size: 0.65rem;
+    .chart-wrap {
+      margin-bottom: 0;
+      min-width: 0;
+    }
+    .chart-wrap.chart-centroid {
+      grid-column: 1 / -1;
+      margin-top: 0.15rem;
+    }
+    .chart-wrap h3 {
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      color: rgba(255,255,255,0.55);
+      text-align: left;
+      margin-bottom: 0.3rem;
+    }
+    .chart-wrap h3 span {
+      display: block;
+      font-size: 0.58rem;
       font-weight: 400;
-      letter-spacing: 0.10em;
-      color: rgba(255,255,255,0.35);
-      text-align: center;
-      margin-bottom: 0.35rem;
+      letter-spacing: 0.04em;
+      color: rgba(255,255,255,0.32);
+      margin-top: 0.1rem;
     }
-    .grafico-canvas-wrap {
+    .chart-canvas-wrap {
       position: relative;
-      height: 72px;
+      height: 110px;
       width: 100%;
     }
-    .grafico-canvas-wrap canvas {
+    .chart-canvas-wrap.tall {
+      height: 180px;
+    }
+    .chart-canvas-wrap canvas {
       display: block;
       width: 100% !important;
       height: 100% !important;
     }
-    .grafico-spiegazione {
+    .chart-caption {
       font-size: 0.72rem;
-      color: rgba(255,255,255,0.38);
-      text-align: center;
-      margin-top: 0.35rem;
+      color: rgba(255,255,255,0.42);
+      text-align: left;
+      margin-top: 0.45rem;
       line-height: 1.45;
     }
-    .risultati-analisi {
+    .results-analysis {
       background: rgba(255,255,255,0.04);
       border: 1px solid rgba(255,255,255,0.08);
       border-radius: 8px;
@@ -721,7 +743,7 @@
       line-height: 1.5;
       margin: 0.65rem 0;
     }
-    .risultati-analisi strong {
+    .results-analysis strong {
       color: rgba(255,255,255,0.80);
       display: block;
       margin-bottom: 0.4rem;
@@ -729,7 +751,7 @@
       letter-spacing: 0.08em;
     }
 
-    /* Calendario */
+    /* Calendar */
     #cal-nav {
       display: flex;
       justify-content: space-between;
@@ -747,19 +769,19 @@
       transition: background 0.2s;
     }
     #cal-nav button:hover { background: rgba(255,255,255,0.08); color: #fff; }
-    #cal-titolo-mese {
+    #cal-month-title {
       font-size: 0.82rem;
       color: rgba(255,255,255,0.65);
       letter-spacing: 0.06em;
       text-transform: uppercase;
     }
-    #cal-intestazione {
+    #cal-header {
       display: grid;
       grid-template-columns: repeat(7, 1fr);
       gap: 3px;
       margin-bottom: 4px;
     }
-    #cal-intestazione span {
+    #cal-header span {
       text-align: center;
       font-size: 0.65rem;
       color: rgba(255,255,255,0.25);
@@ -779,24 +801,24 @@
       border-radius: 6px;
       color: rgba(255,255,255,0.22);
     }
-    .cal-cell.ha-sessione {
+    .cal-cell.has-session {
       background: rgba(180,160,255,0.12);
       border: 1px solid rgba(180,160,255,0.25);
       color: rgba(200,185,255,0.85);
       cursor: pointer;
       font-weight: 500;
     }
-    .cal-cell.ha-sessione:hover { background: rgba(180,160,255,0.22); }
-    .cal-cell.oggi { box-shadow: 0 0 0 1px rgba(255,255,255,0.35); color: rgba(255,255,255,0.65); }
-    .cal-cell.selezionato { background: rgba(180,160,255,0.28) !important; color: #fff !important; }
-    #cal-dettaglio {
+    .cal-cell.has-session:hover { background: rgba(180,160,255,0.22); }
+    .cal-cell.today { box-shadow: 0 0 0 1px rgba(255,255,255,0.35); color: rgba(255,255,255,0.65); }
+    .cal-cell.selected { background: rgba(180,160,255,0.28) !important; color: #fff !important; }
+    #cal-detail {
       margin-top: 1rem;
       font-size: 0.80rem;
       color: rgba(255,255,255,0.50);
       line-height: 1.6;
       min-height: 2rem;
     }
-    .cal-sessione-item {
+    .cal-session-item {
       background: rgba(255,255,255,0.04);
       border: 1px solid rgba(255,255,255,0.08);
       border-radius: 8px;
@@ -804,28 +826,30 @@
       margin-bottom: 0.5rem;
       color: rgba(255,255,255,0.60);
     }
-    .cal-sessione-item strong { color: rgba(255,255,255,0.80); display: block; margin-bottom: 0.3rem; }
-    .cal-sessione-item .cal-racconto {
+    .cal-session-item strong { color: rgba(255,255,255,0.80); display: block; margin-bottom: 0.3rem; }
+    .cal-session-item .cal-story {
       margin-bottom: 0.5rem;
       font-style: italic;
       color: rgba(255,255,255,0.45);
     }
-    .cal-sessione-item .grafico-wrap { margin-top: 0.75rem; }
-    .cal-sessione-item .grafico-wrap h4 {
+    .cal-session-item .chart-wrap { margin-top: 0; }
+    .cal-session-item .charts-grid { margin-top: 0.75rem; }
+    .cal-session-item .chart-wrap h4 {
       font-size: 0.68rem;
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: rgba(255,255,255,0.40);
       margin-bottom: 0.35rem;
     }
-    .cal-sessione-item canvas { max-height: 90px; }
-    .cal-sessione-item .cal-sintesi {
+    .cal-session-item canvas { max-height: 110px; }
+    .cal-session-item .chart-centroid canvas { max-height: 160px; }
+    .cal-session-item .cal-summary {
       margin-top: 0.75rem;
       padding-top: 0.65rem;
       border-top: 1px solid rgba(255,255,255,0.08);
       color: rgba(255,255,255,0.55);
     }
-    .cal-sessione-item .cal-sintesi strong {
+    .cal-session-item .cal-summary strong {
       display: block;
       font-size: 0.68rem;
       letter-spacing: 0.08em;
@@ -834,8 +858,8 @@
       margin-bottom: 0.35rem;
     }
 
-    /* Indicatore di stato (debug, quasi invisibile) */
-    #profilo-overlay {
+    /* Status indicator (debug, almost invisible) */
+    #profile-overlay {
       position: fixed;
       inset: 0;
       background: #000;
@@ -844,8 +868,8 @@
       align-items: center;
       justify-content: center;
     }
-    #profilo-overlay.visibile { display: flex; }
-    #profilo-box {
+    #profile-overlay.visible { display: flex; }
+    #profile-box {
       width: 380px;
       background: rgba(10,14,28,0.96);
       border: 1px solid rgba(255,255,255,0.10);
@@ -853,31 +877,24 @@
       padding: 2rem 2rem 1.5rem;
       color: #fff;
     }
-    #profilo-box h1 {
-      font-size: 1.4rem;
-      font-weight: 300;
-      letter-spacing: 0.20em;
-      text-align: center;
-      margin-bottom: 0.3rem;
-    }
-    #profilo-box .sottotitolo {
+    #profile-box .subtitle {
       color: rgba(255,255,255,0.35);
       font-size: 0.75rem;
       text-align: center;
       margin-bottom: 1.6rem;
       letter-spacing: 0.05em;
     }
-    .profilo-riga {
+    .profile-row {
       display: flex;
       gap: 0.5rem;
     }
-    .profilo-riga .campo-auth { margin-bottom: 0.75rem; }
-    #sesso-gruppo {
+    .profile-row .auth-field { margin-bottom: 0.75rem; }
+    #gender-group {
       display: flex;
       gap: 0.4rem;
       margin-bottom: 0.75rem;
     }
-    .sesso-btn {
+    .gender-btn {
       flex: 1;
       background: rgba(255,255,255,0.06);
       border: 1px solid rgba(255,255,255,0.15);
@@ -888,13 +905,13 @@
       cursor: pointer;
       transition: background 0.2s, color 0.2s, border-color 0.2s;
     }
-    .sesso-btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
-    .sesso-btn.selezionato {
+    .gender-btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
+    .gender-btn.selected {
       background: rgba(255,255,255,0.18);
       border-color: rgba(255,255,255,0.45);
       color: #fff;
     }
-    #profilo-obiettivo {
+    #profile-goal {
       width: 100%;
       background: rgba(255,255,255,0.06);
       border: 1px solid rgba(255,255,255,0.15);
@@ -908,9 +925,9 @@
       margin-bottom: 0.75rem;
       transition: border-color 0.2s;
     }
-    #profilo-obiettivo::placeholder { color: rgba(255,255,255,0.30); }
-    #profilo-obiettivo:focus { border-color: rgba(255,255,255,0.40); }
-    #btn-profilo-salva {
+    #profile-goal::placeholder { color: rgba(255,255,255,0.30); }
+    #profile-goal:focus { border-color: rgba(255,255,255,0.40); }
+    #btn-profile-save {
       width: 100%;
       background: rgba(255,255,255,0.14);
       border: 1px solid rgba(255,255,255,0.30);
@@ -923,15 +940,15 @@
       transition: background 0.2s;
       margin-bottom: 0.5rem;
     }
-    #btn-profilo-salva:hover { background: rgba(255,255,255,0.22); }
-    #profilo-errore {
+    #btn-profile-save:hover { background: rgba(255,255,255,0.22); }
+    #profile-error {
       color: rgba(255,100,100,0.85);
       font-size: 0.78rem;
       min-height: 1rem;
       text-align: center;
     }
 
-    /* Logo fisso in alto al centro */
+    /* Fixed logo top-center */
     #logo-header {
       position: fixed;
       top: 1rem;
@@ -944,8 +961,8 @@
       opacity: 0.88;
     }
 
-    /* Indicatore di stato (debug, nascosto) */
-    #stato {
+    /* Status indicator (debug, hidden) */
+    #status {
       display: none;
     }
   </style>
@@ -957,28 +974,28 @@
 
   <img id="logo-header" src="/assets/logo%20white.png" alt="IN-Motion">
 
-  <!-- Overlay di login (nascosto dopo autenticazione) -->
+  <!-- Overlay di login (hidden dopo autenticazione) -->
   <div id="login-overlay">
     <div id="login-box">
       <img class="logo-login" src="/assets/logo%20white.png" alt="IN-Motion">
-      <p class="sottotitolo">esperienza di meditazione guidata</p>
+      <p class="subtitle">guided meditation experience</p>
 
-      <!-- Tab Accedi / Registrati -->
+      <!-- Tab Sign in / Sign up -->
       <div id="login-tabs">
-        <button class="login-tab attivo" data-tab="accedi">Accedi</button>
-        <button class="login-tab" data-tab="registrati">Registrati</button>
+        <button class="login-tab active" data-tab="sign-in">Sign in</button>
+        <button class="login-tab" data-tab="sign-up">Sign up</button>
       </div>
 
       <!-- Form email / password -->
-      <input  class="campo-auth" id="auth-email"    type="email"    placeholder="Email" autocomplete="email">
-      <input  class="campo-auth" id="auth-password" type="password" placeholder="Password" autocomplete="current-password">
-      <input  class="campo-auth" id="auth-conferma" type="password" placeholder="Conferma password"
+      <input  class="auth-field" id="auth-email"    type="email"    placeholder="Email" autocomplete="email">
+      <input  class="auth-field" id="auth-password" type="password" placeholder="Password" autocomplete="current-password">
+      <input  class="auth-field" id="auth-confirm" type="password" placeholder="Confirm password"
               autocomplete="new-password" style="display:none">
 
-      <button id="btn-submit-auth">Accedi</button>
-      <span   id="link-reset">Password dimenticata?</span>
+      <button id="btn-submit-auth">Sign in</button>
+      <span   id="link-reset">Forgot password?</span>
 
-      <div class="separatore">oppure</div>
+      <div class="separator">or</div>
 
       <button id="btn-google">
         <svg width="18" height="18" viewBox="0 0 48 48">
@@ -987,168 +1004,188 @@
           <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
           <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
         </svg>
-        Continua con Google
+        Continue with Google
       </button>
 
-      <div id="login-errore"></div>
+      <div id="login-error"></div>
       <div id="login-ok"></div>
     </div>
   </div>
 
-  <!-- Form profilo (appare solo al primo accesso) -->
-  <div id="profilo-overlay">
-    <div id="profilo-box">
-      <h1>IN-MOTION</h1>
-      <p class="sottotitolo">un momento per conoscerti</p>
+  <!-- Profile form (first login only) -->
+  <div id="profile-overlay">
+    <div id="profile-box">
+      <img class="logo-login" src="/assets/logo%20white.png" alt="IN-Motion">
+      <p class="subtitle">a moment to get to know you</p>
 
-      <div class="profilo-riga">
-        <input class="campo-auth" id="profilo-nome"    type="text"   placeholder="Nome"    autocomplete="given-name">
-        <input class="campo-auth" id="profilo-cognome" type="text"   placeholder="Cognome" autocomplete="family-name">
+      <div class="profile-row">
+        <input class="auth-field" id="profile-first-name"    type="text"   placeholder="First name" autocomplete="given-name">
+        <input class="auth-field" id="profile-last-name" type="text"   placeholder="Last name"  autocomplete="family-name">
       </div>
 
-      <input class="campo-auth" id="profilo-eta" type="number" placeholder="Età" min="10" max="120" autocomplete="age">
+      <input class="auth-field" id="profile-age" type="number" placeholder="Age" min="10" max="120" autocomplete="age">
 
-      <div id="sesso-gruppo">
-        <button class="sesso-btn" data-val="Uomo">Uomo</button>
-        <button class="sesso-btn" data-val="Donna">Donna</button>
-        <button class="sesso-btn" data-val="Non definito">Non definito</button>
+      <div id="gender-group">
+        <button class="gender-btn" data-val="Male">Male</button>
+        <button class="gender-btn" data-val="Female">Female</button>
+        <button class="gender-btn" data-val="Prefer not to say">Prefer not to say</button>
       </div>
 
-      <textarea id="profilo-obiettivo" rows="3"
-        placeholder="Cosa vorresti migliorare attraverso la meditazione? (es. ridurre ansia, dormire meglio, gestire lo stress…)"></textarea>
+      <textarea id="profile-goal" rows="3"
+        placeholder="What would you like to improve through meditation? (e.g. reduce anxiety, sleep better, manage stress…)"></textarea>
 
-      <button id="btn-profilo-salva">Inizia il percorso →</button>
-      <div id="profilo-errore"></div>
+      <button id="btn-profile-save">Begin your journey →</button>
+      <div id="profile-error"></div>
     </div>
   </div>
 
   <!-- Controlli in alto a sinistra -->
-  <nav id="controls-left" aria-label="Controlli">
-    <div class="ctrl-item" id="ctrl-item-profilo">
-      <button type="button" class="btn-symbol" id="btn-profilo-toggle" title="Profilo" aria-expanded="false">
-        <img id="utente-avatar" class="ctrl-symbol ctrl-symbol--avatar" src="" alt="" style="display:none">
-        <img id="utente-avatar-fallback" class="ctrl-symbol" src="/assets/simbols/user.png" alt="">
+  <nav id="controls-left" aria-label="Controls">
+    <div class="ctrl-item" id="ctrl-item-profile">
+      <button type="button" class="btn-symbol" id="btn-profile-toggle" title="Profile" aria-expanded="false">
+        <img id="user-avatar" class="ctrl-symbol ctrl-symbol--avatar" src="" alt="" style="display:none">
+        <img id="user-avatar-fallback" class="ctrl-symbol" src="/assets/simbols/user.png" alt="">
       </button>
-      <div class="ctrl-flyout" id="utente-flyout">
-        <span id="utente-nome"></span>
-        <button type="button" id="btn-logout">esci</button>
+      <div class="ctrl-flyout" id="user-flyout">
+        <span id="user-name"></span>
+        <button type="button" id="btn-logout">sign out</button>
       </div>
     </div>
     <div class="ctrl-item">
-      <button type="button" class="btn-symbol" id="btn-calendario-top" title="Storico meditazioni">
+      <button type="button" class="btn-symbol" id="btn-calendar-top" title="Meditation history">
         <img class="ctrl-symbol" src="/assets/simbols/calendar.png" alt="">
       </button>
     </div>
     <div class="ctrl-item" id="ctrl-item-volume">
-      <button type="button" class="btn-symbol" id="btn-muto" title="Volume musica" aria-expanded="false">
+      <button type="button" class="btn-symbol" id="btn-mute" title="Music volume" aria-expanded="false">
         <img class="ctrl-symbol" id="icon-volume" src="/assets/simbols/volume.png" alt="">
       </button>
       <div class="ctrl-flyout" id="volume-flyout">
         <input type="range" id="volume-slider" min="0" max="100" value="100"
-          title="Volume musica" aria-label="Volume musica">
+          title="Music volume" aria-label="Music volume">
       </div>
     </div>
     <div class="ctrl-item">
-      <button type="button" class="btn-symbol" id="btn-info" title="Istruzioni">
+      <button type="button" class="btn-symbol" id="btn-info" title="Instructions">
         <img class="ctrl-symbol" src="/assets/simbols/info.png" alt="">
       </button>
     </div>
   </nav>
 
-  <!-- Modal istruzioni -->
+  <!-- Instructions modal -->
   <div id="modal-info">
     <div id="modal-box">
-      <h2>COME FUNZIONA</h2>
+      <h2>HOW IT WORKS</h2>
       <ol>
-        <li>Clicca <strong>Inizia</strong> per avviare l’esperienza.</li>
-        <li>Segui le indicazioni sullo schermo fino all’invito a <strong>chiudere gli occhi</strong> e parlare liberamente.</li>
-        <li>Mentre parli, le tue parole compaiono in basso; quando <strong>riapri gli occhi</strong> l’ascolto termina.</li>
-        <li>L’intelligenza artificiale elabora il tuo racconto e prepara parole, musica e visuali su misura per te.</li>
-        <li>Quando compare la scritta finale, parla liberamente: le parole appaiono in basso. Clicca <strong>Fine</strong> per concludere e vedere i grafici.</li>
+        <li>Click <strong>Start</strong> to begin the experience.</li>
+        <li>Follow the on-screen cues until you’re invited to <strong>close your eyes</strong> and speak freely.</li>
+        <li>As you speak, your words appear at the bottom; when you <strong>open your eyes</strong>, listening ends.</li>
+        <li>AI processes your story and prepares words, music, and visuals tailored to you.</li>
+        <li>When the final prompt appears, speak freely: your words show at the bottom. Click <strong>Done</strong> to finish and see the charts.</li>
       </ol>
-      <h2 style="margin-top:1.25rem; font-size:0.85rem; font-weight:600; color:rgba(255,255,255,0.7); letter-spacing:0.04em;">CONTROLLI</h2>
+      <h2 style="margin-top:1.25rem; font-size:0.85rem; font-weight:600; color:rgba(255,255,255,0.7); letter-spacing:0.04em;">CONTROLS</h2>
       <ul style="padding-left:1.2rem; margin-top:0.5rem;">
-        <li><strong>👤 Profilo</strong> — nome e uscita dall’account</li>
-        <li><strong>📅 Calendario</strong> — storico delle tue meditazioni</li>
-        <li><strong>🔊 Volume</strong> — regola la musica (doppio clic per muto)</li>
-        <li><strong>?</strong> — queste istruzioni</li>
+        <li><strong>Profile</strong> — your name and sign out</li>
+        <li><strong>Calendar</strong> — history of your meditations</li>
+        <li><strong>Volume</strong> — adjust the music (double-click to mute)</li>
+        <li><strong>?</strong> — these instructions</li>
       </ul>
       <p style="margin-top:1rem; color:rgba(255,255,255,0.45); font-size:0.78rem;">
-        Per un’esperienza ottimale usa cuffie e uno spazio tranquillo.<br>
-        La webcam serve solo a leggere le espressioni del volto durante la sessione: nessun video viene registrato né salvato.
+        For the best experience, use headphones and a quiet space.<br>
+        The webcam is only used to read facial expressions during the session: no video is recorded or saved.
       </p>
-      <button id="modal-chiudi">Chiudi</button>
+      <button id="modal-close">Close</button>
     </div>
   </div>
 
-  <div id="ui" class="nascosto">
+  <div id="ui" class="hidden">
     <div id="ui-step1">
-      <button id="inizia" class="btn-pill" type="button">Inizia</button>
+      <button id="start" class="btn-pill" type="button">Start</button>
     </div>
   </div>
 
-  <!-- Testo sessione (racconto visibile durante la meditazione) -->
-  <div id="testo-sessione"><span id="testo-sessione-testo"></span></div>
+  <!-- Session text (visible during meditation) -->
+  <div id="session-text"><span id="session-text-body"></span></div>
 
-  <div id="ui-riflessione" class="nascosto">
-    <button type="button" id="btn-fine-riflessione" class="btn-pill">Fine</button>
+  <div id="ui-reflection" class="hidden">
+    <button type="button" id="btn-end-reflection" class="btn-pill">Done</button>
   </div>
 
-  <!-- Pannello risultati (grafici) -->
-  <div id="panel-risultati" class="pannello-modale">
-    <div class="pannello-box">
-      <h2>IL TUO PERCORSO EMOTIVO</h2>
-      <div class="grafico-wrap">
-        <h3>Come ti sei sentito/a</h3>
-        <div class="grafico-canvas-wrap">
-          <canvas id="grafico-valence"></canvas>
+  <!-- Results panel (charts) -->
+  <div id="panel-results" class="modal-panel">
+    <div class="panel-box">
+      <h2>YOUR EMOTIONAL JOURNEY</h2>
+      <div class="charts-grid">
+        <div class="chart-wrap">
+          <h3>Valence <span>during meditation (−1 negative → +1 positive)</span></h3>
+          <div class="chart-canvas-wrap">
+            <canvas id="chart-v-pre"></canvas>
+          </div>
         </div>
-        <p class="grafico-spiegazione" id="spiega-valence"></p>
-      </div>
-      <div class="grafico-wrap">
-        <h3>Quanto eri attivo/a o in tensione</h3>
-        <div class="grafico-canvas-wrap">
-          <canvas id="grafico-arousal"></canvas>
+        <div class="chart-wrap">
+          <h3>Arousal <span>during meditation (0 calm → 1 activated)</span></h3>
+          <div class="chart-canvas-wrap">
+            <canvas id="chart-a-pre"></canvas>
+          </div>
         </div>
-        <p class="grafico-spiegazione" id="spiega-arousal"></p>
+        <div class="chart-wrap">
+          <h3>Valence <span>after reflection</span></h3>
+          <div class="chart-canvas-wrap">
+            <canvas id="chart-v-post"></canvas>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <h3>Arousal <span>after reflection</span></h3>
+          <div class="chart-canvas-wrap">
+            <canvas id="chart-a-post"></canvas>
+          </div>
+        </div>
+        <div class="chart-wrap chart-centroid">
+          <h3>Emotional centroid <span>how your average mood and energy moved</span></h3>
+          <div class="chart-canvas-wrap tall">
+            <canvas id="chart-centroid"></canvas>
+          </div>
+        </div>
       </div>
-      <div class="risultati-analisi" id="risultati-analisi" style="display:none">
-        <strong>IN SINTESI</strong>
-        <span id="risultati-testo"></span>
+      <p class="chart-caption" id="spiega-valence"></p>
+      <p class="chart-caption" id="spiega-arousal"></p>
+      <div class="results-analysis" id="results-analysis" style="display:none">
+        <strong>IN SUMMARY</strong>
+        <span id="results-text"></span>
       </div>
-      <div class="btn-riga">
-        <!-- Il mandala ad alta risoluzione: lo stesso disegno visto a schermo,
-             ridisegnato con 260.000 particelle invece di 13.664 perche' li'
-             non deve animarsi. Il file lo scrive gia' il backend a fine
-             meditazione; questo lo va solo a prendere. -->
-        <a class="btn-pannello secondario" id="btn-mandala-scarica"
-           href="/mandala/ultimo" download>Il tuo mandala</a>
-        <button class="btn-pannello secondario" id="btn-calendario-apri">📅 Storico</button>
-        <button class="btn-pannello" id="btn-chiudi-risultati">Continua →</button>
+      <div class="btn-row">
+        <!-- High-res mandala download: same drawing as on screen,
+             redrawn with 260k particles. Backend writes the file at end
+             of meditation; this only fetches it. -->
+        <a class="panel-btn secondary" id="btn-mandala-download"
+           href="/mandala/ultimo" download>Your mandala</a>
+        <button class="panel-btn secondary" id="btn-calendar-open">📅 History</button>
+        <button class="panel-btn secondary" id="btn-restart" type="button">Restart</button>
+        <button class="panel-btn" id="btn-close-results">Continue →</button>
       </div>
     </div>
   </div>
 
-  <!-- Calendario meditazioni -->
-  <div id="modal-calendario" class="pannello-modale">
-    <div class="pannello-box">
-      <h2>LE TUE MEDITAZIONI</h2>
+  <!-- Meditation calendar -->
+  <div id="modal-calendar" class="modal-panel">
+    <div class="panel-box">
+      <h2>YOUR MEDITATIONS</h2>
       <div id="cal-nav">
-        <button id="cal-prec">←</button>
-        <span id="cal-titolo-mese"></span>
-        <button id="cal-succ">→</button>
+        <button id="cal-prev">←</button>
+        <span id="cal-month-title"></span>
+        <button id="cal-next">→</button>
       </div>
-      <div id="cal-intestazione">
-        <span>Lun</span><span>Mar</span><span>Mer</span>
-        <span>Gio</span><span>Ven</span><span>Sab</span><span>Dom</span>
+      <div id="cal-header">
+        <span>Mon</span><span>Tue</span><span>Wed</span>
+        <span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
       </div>
       <div id="cal-grid"></div>
-      <div id="cal-dettaglio"></div>
-      <button class="btn-pannello secondario" id="btn-chiudi-calendario" style="margin-top:1.2rem">Chiudi</button>
+      <div id="cal-detail"></div>
+      <button class="panel-btn secondary" id="btn-close-calendar" style="margin-top:1.2rem">Close</button>
     </div>
   </div>
 
-  <div id="stato">avvio…</div>
+  <div id="status">starting…</div>
 
   <!-- Chart.js (UMD, disponibile come globale `Chart`) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>

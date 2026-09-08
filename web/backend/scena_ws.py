@@ -1,19 +1,19 @@
 """
-ScenaWS — versione web di scena.py.
+ScenaWS — web version of scena.py.
 
-Invece di mandare messaggi OSC a TouchDesigner, mette eventi JSON
-in una coda che il WebSocket handler legge e spedisce al browser.
+Instead of sending OSC messages to TouchDesigner, it puts JSON events
+on a queue that the WebSocket handler reads and sends to the browser.
 """
 import queue as _q
 
 
 class ScenaWS:
-    TEMPO_DI_PREPARAZIONE = 0.6  # mantenuto per compatibilità con esperienza.py
+    TEMPO_DI_PREPARAZIONE = 0.6  # kept for compatibility with esperienza.py
 
     def __init__(self, coda: _q.SimpleQueue):
         self._coda = coda
 
-    # ---------------------------------------------------------------- comandi
+    # ---------------------------------------------------------------- commands
     def prepara(self, frasi):
         frasi = [f for f in (frasi or []) if f]
         if frasi:
@@ -30,14 +30,14 @@ class ScenaWS:
         })
 
     def tinta(self, tonalita, emozione="Q2"):
-        """La tinta personale, appena Claude ha risposto.
+        """The personal tint, as soon as Claude has answered.
 
-        Il gemello di scena.py: li' e' un messaggio OSC, qui un evento in coda.
-        Il browser per ora lo IGNORA — il renderer JS ha ancora la sua copia
-        della logica di colore, dove la tinta arriva solo col mandala. Il
-        metodo deve esistere lo stesso, perche' esperienza.py e' condivisa fra
-        le due versioni e senza di lui la sessione web muore con un
-        AttributeError nell'istante in cui il modello risponde."""
+        Twin of scena.py: there it is an OSC message, here a queued event.
+        The browser currently IGNORES it — the JS renderer still has its own
+        copy of the color logic, where the tint arrives only with the mandala.
+        The method must exist anyway, because esperienza.py is shared between
+        both versions and without it the web session dies with an
+        AttributeError the instant the model responds."""
         self._coda.put({
             "tipo": "tinta",
             "tonalita": float(tonalita),
@@ -45,8 +45,8 @@ class ScenaWS:
         })
 
     def tinta_forza(self, valore, durata=12.0):
-        """Quanta tinta personale si vede, da 0 (il blu) a 1, in 'durata'
-        secondi. Vedi tinta() per il perche' esiste anche qui."""
+        """How much personal tint is visible, from 0 (the blue) to 1, over
+        'durata' seconds. See tinta() for why this exists here too."""
         self._coda.put({
             "tipo": "tinta_forza",
             "valore": float(valore),

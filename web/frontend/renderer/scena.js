@@ -1,35 +1,35 @@
 /**
- * scena.js — coordinate mondo condivise tra logica, testo e renderer.
+ * scena.js — shared world coordinates for logic, text, and the renderer.
  *
- * Il rapporto d'aspetto segue la finestra (come in td_face_points.py con
- * render.par.resolutionw / resolutionh), così volto e scritte non si
- * deformano su schermi non 16:9.
+ * Aspect ratio follows the window (as in td_face_points.py with
+ * render.par.resolutionw / resolutionh), so face and text do not
+ * distort on non-16:9 screens.
  */
 
-export const SCALA = 2.45;
+export const SCALE = 2.45;
 
-export const TESTO_LARGHEZZA = 2.33;
-export const TESTO_ALTEZZA   = 1.10;
+export const TEXT_WIDTH = 2.33;
+export const TEXT_HEIGHT   = 1.10;
 
 export const CAM_TX = 0.0;
 export const CAM_TY = 0.0;
 
-export const MANDALA_RIEMPIMENTO = 0.88;
+export const MANDALA_FILL = 0.88;
 
-export function aspettoSchermo() {
+export function screenAspect() {
     const w = window.innerWidth  || 1280;
     const h = window.innerHeight || 720;
     return w / h;
 }
 
-export function larghezzaMondo() {
-    return aspettoSchermo() * SCALA;
+export function worldWidth() {
+    return screenAspect() * SCALE;
 }
 
-export function altezzaMondo() {
-    return SCALA;
+export function worldHeight() {
+    return SCALE;
 }
 
-export function raggioVisibile() {
-    return (SCALA / 2.0) * MANDALA_RIEMPIMENTO;
+export function visibleRadius() {
+    return (SCALE / 2.0) * MANDALA_FILL;
 }

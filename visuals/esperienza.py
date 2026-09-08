@@ -60,10 +60,28 @@ import voce as modulo_voce
 # e' la lingua in cui il pezzo si mostra. Cambiarla vuol dire toccare tre
 # posti: queste scritte, il prompt in testi.py, e LINGUA in ascolto.py e in
 # voce.py.
+SALUTO_BASE = "THANK YOU FOR BEING HERE"
+
+
+def saluto_per(nome=None):
+    """Opening line, personalized with the participant's first name when known.
+
+    Particle text stays within MAX_CARATTERI (42); a long name becomes a
+    second beat so the line does not spill.
+    """
+    nome = (nome or "").strip()
+    if not nome:
+        return [SALUTO_BASE]
+    nome_vis = nome.upper()
+    frase = f"{SALUTO_BASE}, {nome_vis}"
+    if len(frase) <= testi.MAX_CARATTERI:
+        return [frase]
+    return [f"{SALUTO_BASE},", nome_vis[:testi.MAX_CARATTERI]]
+
+
+# Kept as a list-of-lists so prepara_voce.py can still walk "variants".
 SALUTO_VARIANTI = [
-    ["WELCOME, AND THANK YOU FOR BEING HERE"],
-    ["YOU MADE IT HERE, AND THAT'S ENOUGH"],
-    ["THANK YOU FOR BEING HERE, NOW"],
+    [SALUTO_BASE],
 ]
 INVITO_VARIANTI = [
     ["WHEN YOU FEEL READY", "CLOSE YOUR EYES AND TELL ME ANYTHING"],
@@ -81,7 +99,7 @@ COMMIATO_VARIANTI = [
     ["TAKE ONLY WHAT YOU NEED WITH YOU", "SEE YOU SOON"],
 ]
 
-SALUTO = random.choice(SALUTO_VARIANTI)
+SALUTO = saluto_per(None)   # default without name; each session may override
 INVITO = random.choice(INVITO_VARIANTI)
 CHIUSURA = random.choice(CHIUSURA_VARIANTI)
 COMMIATO = random.choice(COMMIATO_VARIANTI)
@@ -117,10 +135,10 @@ SCRITTE_DA_DIRE = SCRITTE_FISSE + [
 # vera di ogni schermata non e' quindi piu' una costante — si calcola in
 # _mostra_blocco() e vive in self._durata_blocco. L'unica eccezione e'
 # l'ultimo blocco dell'invito, che resta a schermo finche' non chiude gli occhi.
-# MODALITA' PROVA: durante lo sviluppo aspettare sei secondi a scritta e' una
-# tortura. Rimettere a 6.0 (o piu') prima di mostrarlo a qualcuno: una frase
-# che si legge di corsa non da' il tempo di sentirla.
-LEGGIBILE = 2.0
+# MODALITA' PROVA: durante lo sviluppo si puo' abbassare a 2.0, ma prima di
+# mostrarlo a qualcuno va rimesso a 6.0 (o piu'): una frase che si legge di
+# corsa non da' il tempo di sentirla.
+LEGGIBILE = 6.0
 
 TRANSIZIONE = 2.0           # quanto dura il passaggio da una forma all'altra (prova; era 4.0)
 TRANSIZIONE_BREVE = 1.5     # per i cambi rapidi (blocchi d'attesa) (prova; era 2.5)
@@ -261,11 +279,13 @@ PERMANENZA_COMMIATO = LEGGIBILE
 
 class Esperienza:
     def __init__(self, scena: modulo_scena.Scena, racconto: str, ascolto=None,
-                 musica=None, tappeto=None, voce=None, sincronia=None):
+                 musica=None, tappeto=None, voce=None, sincronia=None,
+                 nome=None):
         self.scena = scena
         self.racconto = racconto      # ripiego se il microfono non c'e' o non sente
         self.ascolto = ascolto
         self.sincronia = sincronia    # web: sincronizza riflessione e risultati col browser
+        self.saluto = saluto_per(nome)
         self.occhi = modulo_occhi.Rilevatore()
         self.movimento = modulo_movimento.Movimento()
         self._generazione_avviata = False
@@ -275,6 +295,7 @@ class Esperienza:
         self.finita = False
 
         self._ultimo_stato_occhi = None
+        self._occhi_armati = False   # must see eyes open before a close counts
         self._materiale = None
         self._t_pronto = None
         self._scritte_pronte = False
@@ -320,13 +341,18 @@ class Esperienza:
 
     # ---------- avvio ----------
 
+    def _scritte_sessione(self):
+        """Fixed lines for this session, with the personalized greeting first."""
+        return (self.saluto + INVITO + ATTESA + ATTESA_MANDALA
+                + INVITO_DISSOLUZIONE + [INVITO_RIFLESSIONE] + COMMIATO + CHIUSURA)
+
     def prepara_scritte(self):
         """Chiede a TD di disegnare in anticipo tutte le scritte fisse.
 
         Dopo questa chiamata bisogna lasciar passare del tempo prima di
         poterne mostrare una: TD le disegna e le campiona una alla volta, e
         chiedere una scritta non ancora pronta fa ripiegare sul volto."""
-        self.scena.prepara(SCRITTE_FISSE)
+        self.scena.prepara(self._scritte_sessione())
         self._scritte_pronte = True
 
     def prepara_voce(self):
@@ -336,8 +362,20 @@ class Esperienza:
         piena — cioe' sempre, dopo il primo giro o dopo prepara_voce.py —
         finisce in un istante perche' non c'e' niente da fare. A cache fredda
         ci mette qualche decina di secondi, e le scritte che non fanno in
-        tempo restano semplicemente mute: nessuna si fa aspettare."""
-        return self.voce.prepara_in_sottofondo(SCRITTE_DA_DIRE)
+        tempo restano semplicemente mute: nessuna si fa aspettare.
+
+        The opening (greeting + eye-close invitation) is prepared first and
+        synchronously: those lines set the rhythm of the first minute, and a
+        name-specific greeting is rarely already in cache.
+        """
+        apertura = list(self.saluto) + list(INVITO)
+        try:
+            self.voce.prepara(apertura, silenzioso=True)
+        except Exception as exc:
+            print(f"voce: apertura non preparata ({exc})")
+        da_dire = self._scritte_sessione() + [
+            testi.RISERVA[campo] for campo in testi.CAMPI_TESTO]
+        return self.voce.prepara_in_sottofondo(da_dire)
 
     def prepara_tappeto(self):
         """Carica il tappeto senza farlo partire.
@@ -368,7 +406,7 @@ class Esperienza:
 
         Non serve a main.py, che apre sulla polvere: e' qui per chi volesse
         far partire l'esperienza con il benvenuto gia' composto."""
-        self.scena.testo(SALUTO[0], transizione=0.0)
+        self.scena.testo(self.saluto[0], transizione=0.0)
 
     def avvia(self, ora):
         # se si e' passati da prepara_scritte() non si rifa': ridisegnarle
@@ -379,7 +417,7 @@ class Esperienza:
         # Il momento dell'apertura: le particelle sparse si raccolgono nelle
         # prime parole. Piu' lento del resto perche' e' l'inizio, e perche'
         # e' il primo movimento che lo spettatore vede.
-        self._mostra_blocco(SALUTO, 0, ora, transizione=TRANSIZIONE_APERTURA)
+        self._mostra_blocco(self.saluto, 0, ora, transizione=TRANSIZIONE_APERTURA)
         # di norma il tappeto e' gia' entrato con la dissolvenza d'apertura;
         # qui si copre il caso in cui avvia() venga chiamata da sola
         if not self._tappeto_avviato:
@@ -397,11 +435,11 @@ class Esperienza:
 
     # ---------- il ciclo lo chiama ad ogni fotogramma ----------
 
-    def aggiorna(self, ora, punti=None):
+    def aggiorna(self, ora, punti=None, blink=None):
         if self.finita:
             return
 
-        stato_occhi = self.occhi.aggiorna(punti, ora)
+        stato_occhi = self.occhi.aggiorna(punti, ora, blink=blink)
         if stato_occhi != self._ultimo_stato_occhi:
             print(f"occhi: {stato_occhi}")
             # la prima lettura non e' un cambiamento: e' solo il primo
@@ -426,20 +464,27 @@ class Esperienza:
 
         if self.stato == "saluto":
             if ora - self._t_blocco >= self._durata_blocco:
-                if self._indice_blocco + 1 < len(SALUTO):
-                    self._mostra_blocco(SALUTO, self._indice_blocco + 1, ora)
+                if self._indice_blocco + 1 < len(self.saluto):
+                    self._mostra_blocco(self.saluto, self._indice_blocco + 1, ora)
                 else:
                     self._vai("invito", ora)
                     self._mostra_blocco(INVITO, 0, ora)
 
         elif self.stato == "invito":
+            # Looking down at Restart / the keyboard often reads as "closed".
+            # Arm only after open eyes are confirmed in this phase.
+            if stato_occhi == "aperti":
+                self._occhi_armati = True
+
             ultimo_blocco = self._indice_blocco >= len(INVITO) - 1
             if not ultimo_blocco and (ora - self._t_blocco) >= self._durata_blocco:
                 self._mostra_blocco(INVITO, self._indice_blocco + 1, ora)
+                ultimo_blocco = self._indice_blocco >= len(INVITO) - 1
 
-            # si passa oltre quando chiude gli occhi (o dopo molto tempo,
-            # per non lasciare il sistema bloccato durante una presentazione)
-            if stato_occhi == "chiusi" or trascorso >= MAX_ATTESA_GESTO:
+            pronto_occhi = (
+                self._occhi_armati and ultimo_blocco and stato_occhi == "chiusi"
+            )
+            if pronto_occhi or trascorso >= MAX_ATTESA_GESTO:
                 self._vai("ascolto", ora)
                 # la guida tace PRIMA che il microfono si accenda: quello che
                 # suona in stanza finisce nella registrazione, e una frase
@@ -522,7 +567,10 @@ class Esperienza:
                     self._mostra_scena_corrente()
 
         elif self.stato == "invito_meditazione":
-            if stato_occhi == "chiusi" or trascorso >= MAX_ATTESA_GESTO:
+            if stato_occhi == "aperti":
+                self._occhi_armati = True
+            pronto_occhi = self._occhi_armati and stato_occhi == "chiusi"
+            if pronto_occhi or trascorso >= MAX_ATTESA_GESTO:
                 self._vai("meditazione", ora)
                 self.scena.mostra("volto", transizione=TRANSIZIONE)
                 # il colore sale insieme alla musica dell'emozione: sono la
@@ -660,6 +708,13 @@ class Esperienza:
     def _vai(self, stato, ora):
         self.stato = stato
         self.t_stato = ora
+        # Phases that wait for a deliberate eye-close need a fresh open→close.
+        if stato in ("invito", "invito_meditazione", "riflessione_invito"):
+            self._occhi_armati = False
+
+    def imposta_racconto(self, racconto: str):
+        """Update the story text before Claude runs (web mid-session path)."""
+        self.racconto = racconto or self.racconto
 
     def _mostra_blocco(self, blocchi, indice, ora, transizione=TRANSIZIONE,
                        permanenza=LEGGIBILE):

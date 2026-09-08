@@ -1,8 +1,8 @@
 /**
- * post.js — catena di post-produzione con Three.js.
+ * post.js — post-production chain with Three.js.
  *
- * Equivalente di td_estetica.py:
- *   render → bloom → (+ sfondo) → vignetta → grana → uscita
+ * Equivalent of td_estetica.py:
+ *   render → bloom → (+ background) → vignette → grain → output
  */
 
 import * as THREE from 'three';
@@ -11,47 +11,48 @@ import { RenderPass }      from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass }      from 'three/addons/postprocessing/ShaderPass.js';
 
-// ------------------------------------------------------------------ quanto si vede
-// Il bagliore e' il pezzo che trasforma dei puntini in luce: senza, le
-// particelle restano granelli e le scritte si leggono a fatica.
+// ------------------------------------------------------------------ how much is visible
+// Bloom is the piece that turns dots into light: without it, particles stay
+// grains and text is hard to read.
 //
-// Intensita' e soglia sono quelle del bloomTOP di TouchDesigner, e vanno bene
-// COSI'. Vale la pena scrivere perche', perche' per un po' sono state alzate a
-// forza fino a 2.10 nel tentativo di recuperare un'immagine troppo scura, e
-// quel tentativo era la cura sbagliata per la malattia giusta.
+// Intensity and threshold match TouchDesigner's bloomTOP, and they are fine
+// AS THEY ARE. Worth writing why, because for a while they were forced up to
+// 2.10 trying to recover an image that was too dark, and that attempt was the
+// wrong cure for the right disease.
 //
-// L'immagine era scura per la DIMENSIONE DELLE PARTICELLE, non per il
-// bagliore: erano larghe un pixel (vedi la nota in particelle.js), quindi non
-// si sovrapponevano e in fusione additiva non c'era niente da sommare.
-// Alzando il bagliore si schiarivano puntini isolati; misurata, la stessa
-// scena passava dallo 0.01% al 38% di pixel bruciati e diventava una macchia
-// bianca. Corretta la dimensione, questi numeri tornano quelli di TD.
+// The image was dark because of PARTICLE SIZE, not bloom: they were one pixel
+// wide (see the note in particelle.js), so they did not overlap and in
+// additive blending there was nothing to add. Raising bloom brightened
+// isolated dots; measured, the same scene went from 0.01% to 38% burned
+// pixels and became a white blotch. With size corrected, these numbers go
+// back to TD's.
 //
-// Il RAGGIO invece resta diverso, ed e' un errore di traduzione vero: in TD il
-// bagliore ha due raggi (min 0.10, max 0.62), UnrealBloomPass ne ha uno solo,
-// che non e' un minimo ma l'AMPIEZZA dell'alone. Gli era stato passato 0.10.
-const BLOOM_INTENSITA = 0.85;   // come bloomintensity in td_estetica.py
-const BLOOM_RAGGIO    = 0.62;   // l'ampiezza dell'alone (era 0.10: quasi nulla)
-const BLOOM_SOGLIA    = 0.28;   // come bloomthreshold
+// RADIUS stays different, and that is a real translation error: in TD bloom
+// has two radii (min 0.10, max 0.62); UnrealBloomPass has only one, which is
+// not a minimum but the WIDTH of the halo. It had been given 0.10.
+const BLOOM_INTENSITA = 0.55;   // lowered: at 0.85 face and text were burning
+const BLOOM_RAGGIO    = 0.55;
+const BLOOM_SOGLIA    = 0.32;   // slightly more selective: less halo on mid pixels
 
-// Quanto e' esposta l'immagine finita. E' una manopola di RESA, non di colore,
-// e sta qui apposta: la palette e' condivisa parola per parola con le altre due
-// versioni dell'opera, mentre quanto viene luminoso un pixel dipende da questa
-// catena, che in TD e' fatta di altri nodi. Alzala se il proiettore rende
-// scuro, abbassala se le zone dense bruciano in bianco.
-const ESPOSIZIONE = 1.0;
+// How exposed the finished image is. A LOOK knob, not a color one, and it
+// lives here on purpose: the palette is shared word-for-word with the other
+// two versions of the piece, while how bright a pixel comes out depends on
+// this chain, which in TD is other nodes. Raise it if the projector looks
+// dark, lower it if dense areas burn to white.
+const ESPOSIZIONE = 0.72;
 
-// Una manopola letta dall'indirizzo: ?particelle=2.4&esposizione=1.2
-// Serve a tarare la resa sul proiettore vero. Trovati i numeri, si scrivono
-// nelle costanti qui sopra: il parametro e' per provare, non per l'opera.
+// A knob read from the URL: ?particelle=2.4&esposizione=1.2
+// Used to calibrate look on the real projector. Once the numbers are found,
+// write them into the constants above: the query param is for trying, not
+// for the piece.
 //
-// E' ripetuta anche in renderer/particelle.js, e la ripetizione e' voluta. Metterla in comune in
-// scena.js sembrava piu' pulito e si e' rivelato un buco: il browser tiene i
-// moduli in cache e non li rivalida, quindi bastava una copia vecchia di
-// scena.js senza quell'export perche' l'import fallisse, app.js non partisse
-// MAI e l'interfaccia restasse con tutti i pulsanti inerti — senza un errore
-// a schermo. Sei righe ripetute costano meno di quel sintomo.
-function daIndirizzo(nome, predefinito) {
+// Also duplicated in renderer/particelle.js, and the duplication is intentional.
+// Sharing it in scena.js looked cleaner and turned out to be a hole: the
+// browser caches modules and does not revalidate them, so an old copy of
+// scena.js without that export was enough for the import to fail, app.js to
+// NEVER start, and the UI to leave every button inert — with no on-screen
+// error. Six repeated lines cost less than that symptom.
+function fromQuery(nome, predefinito) {
     try {
         const v = parseFloat(new URLSearchParams(location.search).get(nome));
         return Number.isFinite(v) && v > 0 ? v : predefinito;
@@ -60,15 +61,15 @@ function daIndirizzo(nome, predefinito) {
     }
 }
 
-// ------------------------------------------------------------------ shader vignetta + sfondo
+// ------------------------------------------------------------------ vignette + background shader
 const VignettaSfondoShader = {
     uniforms: {
         tDiffuse: { value: null },
         intensita: { value: 0.45 },
         esposizione: { value: 1.0 },
-        // sfondo: alone radiale al centro (come rampTOP circular).
-        // I due colori non sono piu' fissi: seguono la tinta della sessione,
-        // vedi setSfondo(). Questi restano i valori del blu di partenza.
+        // background: radial halo at the center (like rampTOP circular).
+        // The two colors are no longer fixed: they follow the session tint,
+        // see setSfondo(). These remain the starting-blue values.
         sfondoCentro: { value: new THREE.Color(0.030, 0.042, 0.085) },
         sfondoBordo:  { value: new THREE.Color(0.004, 0.006, 0.016) },
     },
@@ -86,19 +87,19 @@ const VignettaSfondoShader = {
         void main() {
             vec4 c = texture2D(tDiffuse, vUv);
             vec2 d = vUv * 2.0 - 1.0;
-            float r = dot(d, d);                       // 0 al centro, ~2 agli angoli
-            // sfondo radiale
+            float r = dot(d, d);                       // 0 at center, ~2 at corners
+            // radial background
             vec3 sfondo = mix(sfondoCentro, sfondoBordo, clamp(r * 0.5, 0.0, 1.0));
-            // aggiunge (fusione additiva come in TD)
+            // add (additive blend as in TD)
             vec3 composito = (c.rgb + sfondo) * esposizione;
-            // vignetta: moltiplica
+            // vignette: multiply
             float vign = 1.0 - r * intensita;
             gl_FragColor = vec4(composito * clamp(vign, 0.3, 1.0), 1.0);
         }
     `,
 };
 
-// ------------------------------------------------------------------ shader grana
+// ------------------------------------------------------------------ grain shader
 const GranaShader = {
     uniforms: {
         tDiffuse: { value: null },
@@ -125,7 +126,7 @@ const GranaShader = {
     `,
 };
 
-// ------------------------------------------------------------------ classe
+// ------------------------------------------------------------------ class
 export class PostProcessing {
     constructor(renderer, scene, camera, w, h) {
         this._renderer = renderer;
@@ -134,20 +135,20 @@ export class PostProcessing {
         const renderPass = new RenderPass(scene, camera);
         this._composer.addPass(renderPass);
 
-        // Bloom: e' il pezzo che trasforma dei puntini in luce.
+        // Bloom: the piece that turns dots into light.
         const bloom = new UnrealBloomPass(
             new THREE.Vector2(w, h),
-            daIndirizzo('bagliore', BLOOM_INTENSITA), BLOOM_RAGGIO, BLOOM_SOGLIA
+            fromQuery('bagliore', BLOOM_INTENSITA), BLOOM_RAGGIO, BLOOM_SOGLIA
         );
         this._composer.addPass(bloom);
 
-        // Sfondo radiale + vignetta
+        // Radial background + vignette
         this._vignettePass = new ShaderPass(VignettaSfondoShader);
         this._vignettePass.uniforms.esposizione.value =
-            daIndirizzo('esposizione', ESPOSIZIONE);
+            fromQuery('esposizione', ESPOSIZIONE);
         this._composer.addPass(this._vignettePass);
 
-        // Grana cinematografica
+        // Film grain
         this._granaPass = new ShaderPass(GranaShader);
         this._granaPass.renderToScreen = true;
         this._composer.addPass(this._granaPass);
@@ -162,19 +163,19 @@ export class PostProcessing {
         this._composer.setSize(w, h);
     }
 
-    /** Dissolvenza in entrata: 0 = nero, 1 = piena luce. */
-    set luminosita(v) {
+    /** Fade in: 0 = black, 1 = full light. */
+    set brightness(v) {
         this._vignettePass.uniforms.intensita.value = 0.45 * v;
         const f = Math.max(v * 2 - 1, 0);
         this._granaPass.uniforms.ampiezza.value = 0.010 * f;
     }
 
     /**
-     * Il colore dell'alone di sfondo. Centro e bordo non sono due colori
-     * indipendenti: il bordo e' esattamente 0.188 del centro, che e' il
-     * rapporto del blu originale sul canale blu — quello che a quelle
-     * luminosita' decide. Cosi' il gradiente porta la FORMA dell'alone e
-     * questo metodo ne porta il COLORE, come i due nodi separati dentro TD.
+     * Background halo color. Center and edge are not two independent colors:
+     * the edge is exactly 0.188 of the center, which is the ratio of the
+     * original blue on the blue channel — the one that decides at those
+     * luminances. So the gradient carries the SHAPE of the halo and this
+     * method carries its COLOR, like the two separate nodes inside TD.
      */
     setSfondo(rgb) {
         if (!rgb) return;

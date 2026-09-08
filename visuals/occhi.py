@@ -52,14 +52,17 @@ def apertura(punti):
 # mezzo, quindi con largo margine da entrambi i lati.
 # Se cambiano webcam, luce o distanza, rilanciare taratura.py.
 SOGLIA = 0.18
+# MediaPipe blendshape eyeBlinkLeft/Right: ~0 open, ~1 fully closed.
+# Used on the web as a second signal when landmarks are noisy.
+SOGLIA_BLINK = 0.45
 # Un cambiamento conta solo se dura. In chiusura serve a ignorare i battiti di
 # ciglia (~0.3s); in apertura a ignorare chi sbircia un istante senza voler
 # davvero interrompere — importante ora per non troncare l'ascolto, e ancora
 # di piu' nella fase 2, dove un occhio aperto per sbaglio non deve chiudere
 # la meditazione. Sono due costanti separate apposta: un domani potrebbero
 # servire diverse.
-CONFERMA_CHIUSURA = 2.0
-CONFERMA_APERTURA = 2.0
+CONFERMA_CHIUSURA = 1.2
+CONFERMA_APERTURA = 1.2
 
 
 class Rilevatore:
@@ -73,20 +76,40 @@ class Rilevatore:
         soglia=SOGLIA,
         conferma_chiusura=CONFERMA_CHIUSURA,
         conferma_apertura=CONFERMA_APERTURA,
+        soglia_blink=SOGLIA_BLINK,
     ):
         self.soglia = soglia
+        self.soglia_blink = soglia_blink
         self.conferma_chiusura = conferma_chiusura
         self.conferma_apertura = conferma_apertura
         self.stato = "aperti"
         self._candidato = None
         self._candidato_da = None
 
-    def aggiorna(self, punti, ora):
-        """Da chiamare ad ogni fotogramma. Restituisce lo stato confermato."""
-        if punti is None:
+    def aggiorna(self, punti, ora, blink=None):
+        """Da chiamare ad ogni fotogramma. Restituisce lo stato confermato.
+
+        blink: optional MediaPipe eyeBlink average in [0,1] (1 = closed).
+        When present, closed if EITHER landmark aperture or blink says so.
+        """
+        if punti is None and blink is None:
             return self.stato
 
-        istantaneo = "chiusi" if apertura(punti) < self.soglia else "aperti"
+        chiuso_ear = False
+        if punti is not None:
+            try:
+                chiuso_ear = apertura(punti) < self.soglia
+            except Exception:
+                chiuso_ear = False
+
+        chiuso_blink = False
+        if blink is not None:
+            try:
+                chiuso_blink = float(blink) >= self.soglia_blink
+            except (TypeError, ValueError):
+                chiuso_blink = False
+
+        istantaneo = "chiusi" if (chiuso_ear or chiuso_blink) else "aperti"
 
         if istantaneo == self.stato:
             self._candidato = None

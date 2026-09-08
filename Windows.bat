@@ -3,17 +3,15 @@ setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 title IN-Motion
 
-rem Double-clickable launcher for IN-Motion (Windows).
-rem Finds Python 3.10+, installs requirements.txt if needed, then starts the server.
-
+rem Keep the window open if anything fails unexpectedly.
 set "DIR=%~dp0"
 if "%DIR:~-1%"=="\" set "DIR=%DIR:~0,-1%"
 set "BACKEND=%DIR%\web\backend"
 set "PORT=8080"
 set "LOG=%TEMP%\inmotion.log"
+set "PYFILE=%TEMP%\inmotion_pyexe.txt"
 set "RUNBAT=%TEMP%\inmotion_run.bat"
 set "PYEXE="
-set "PYLAUNCH="
 
 echo.
 echo   IN-Motion
@@ -21,130 +19,149 @@ echo.
 echo ------------------------------------------------------
 echo.
 
-rem Prefer the Python launcher, then python / python3
-where py >nul 2>&1 && (
-    py -3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>&1 && set "PYLAUNCH=py -3"
-)
-if not defined PYLAUNCH (
-    where python >nul 2>&1 && (
-        python -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>&1 && set "PYLAUNCH=python"
-    )
-)
-if not defined PYLAUNCH (
-    where python3 >nul 2>&1 && (
-        python3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>&1 && set "PYLAUNCH=python3"
+rem --- find Python 3.10+ and write sys.executable to a file (avoids for /f quote bugs)
+if exist "%PYFILE%" del /f /q "%PYFILE%" >nul 2>&1
+
+where py >nul 2>&1
+if not errorlevel 1 (
+    py -3 -c "import sys; raise SystemExit(0 if sys.version_info>=(3,10) else 1)" >nul 2>&1
+    if not errorlevel 1 (
+        py -3 -c "import sys; open(sys.argv[1],'w',encoding='utf-8').write(sys.executable)" "%PYFILE%" >nul 2>&1
     )
 )
 
-if not defined PYLAUNCH (
+if not exist "%PYFILE%" (
+    where python >nul 2>&1
+    if not errorlevel 1 (
+        python -c "import sys; raise SystemExit(0 if sys.version_info>=(3,10) else 1)" >nul 2>&1
+        if not errorlevel 1 (
+            python -c "import sys; open(sys.argv[1],'w',encoding='utf-8').write(sys.executable)" "%PYFILE%" >nul 2>&1
+        )
+    )
+)
+
+if not exist "%PYFILE%" (
+    where python3 >nul 2>&1
+    if not errorlevel 1 (
+        python3 -c "import sys; raise SystemExit(0 if sys.version_info>=(3,10) else 1)" >nul 2>&1
+        if not errorlevel 1 (
+            python3 -c "import sys; open(sys.argv[1],'w',encoding='utf-8').write(sys.executable)" "%PYFILE%" >nul 2>&1
+        )
+    )
+)
+
+if not exist "%PYFILE%" (
     echo [X] Python 3.10+ not found.
     echo     Install from https://www.python.org/downloads/
-    echo     and tick "Add python.exe to PATH", then run this again.
+    echo     Enable "Add python.exe to PATH", then retry.
     echo.
-    pause
-    exit /b 1
+    goto :end_fail
 )
 
-rem Resolve to a full python.exe path so start/redirect never break on "py -3"
-for /f "delims=" %%P in ('!PYLAUNCH! -c "import sys; print(sys.executable)"') do set "PYEXE=%%P"
+set /p PYEXE=<"%PYFILE%"
 if not defined PYEXE (
-    echo [X] Could not resolve Python executable.
-    pause
-    exit /b 1
+    echo [X] Could not read Python path.
+    goto :end_fail
 )
 
-for /f "delims=" %%V in ('"%PYEXE%" --version 2^>^&1') do echo [OK] %%V
+echo [OK] Python:
+"%PYEXE%" --version
 echo      %PYEXE%
+echo.
 
+rem --- dependencies
 "%PYEXE%" -c "import uvicorn, fastapi, dotenv, anthropic" >nul 2>&1
 if errorlevel 1 (
-    echo [!] Installing dependencies ^(first run may take a few minutes^)...
+    echo [!] Installing dependencies from requirements.txt ...
+    echo     First run can take several minutes.
+    echo.
     "%PYEXE%" -m pip install -r "%BACKEND%\requirements.txt"
     if errorlevel 1 (
-        echo [X] Install failed.
-        pause
-        exit /b 1
+        echo.
+        echo [X] pip install failed.
+        goto :end_fail
     )
 )
 echo [OK] Dependencies ready
+echo.
 
-rem Load .env from project root (server also loads it itself)
+rem --- .env
 if exist "%DIR%\.env" (
     for /f "usebackq tokens=1* delims== eol=#" %%A in ("%DIR%\.env") do (
         if not "%%A"=="" if not "%%B"=="" set "%%A=%%B"
     )
     echo [OK] .env loaded
+) else (
+    echo [!] No .env in project root — API keys may be missing
 )
+echo.
 
-rem Free the port if something is already listening
-for /f "tokens=5" %%P in ('netstat -ano 2^>nul ^| findstr /R /C:":%PORT% .*LISTENING"') do (
-    echo [!] Stopping previous process on port %PORT% ^(PID %%P^)...
+rem --- free port 8080
+for /f "tokens=5" %%P in ('netstat -ano 2^>nul ^| findstr ":%PORT%" ^| findstr "LISTENING"') do (
+    echo [!] Stopping PID %%P on port %PORT%
     taskkill /F /PID %%P >nul 2>&1
 )
-timeout /t 1 /nobreak >nul
 
-echo.
-echo   Starting server...
-cd /d "%BACKEND%" || (
-    echo [X] Cannot open "%BACKEND%"
-    pause
-    exit /b 1
+if not exist "%BACKEND%\server.py" (
+    echo [X] server.py not found in:
+    echo     %BACKEND%
+    goto :end_fail
+)
+
+cd /d "%BACKEND%"
+if errorlevel 1 (
+    echo [X] Cannot cd to backend folder.
+    goto :end_fail
 )
 
 if exist "%LOG%" del /f /q "%LOG%" >nul 2>&1
 
-rem Helper .bat avoids broken quoting around "py -3" + redirects inside start
-> "%RUNBAT%" (
+rem Write a tiny runner so quoting stays simple
+(
     echo @echo off
     echo cd /d "%BACKEND%"
     echo "%PYEXE%" -m uvicorn server:app --host 127.0.0.1 --port %PORT%
-)
-start "IN-Motion server" /MIN cmd /c ""%RUNBAT%" >"%LOG%" 2>&1"
+) > "%RUNBAT%"
 
-echo   Waiting for http://127.0.0.1:%PORT%/
+echo Starting server...
+echo Log: %LOG%
+echo.
+
+start "IN-Motion server" /MIN cmd /c "call \"%RUNBAT%\" >\"%LOG%\" 2>&1"
+
+rem --- wait until HTTP 200 (up to ~90s)
 set "PRONTO=0"
+echo Waiting
 for /l %%I in (1,1,90) do (
     if "!PRONTO!"=="0" (
-        timeout /t 1 /nobreak >nul
+        ping -n 2 127.0.0.1 >nul
         <nul set /p=.
-        rem Prefer curl; fall back to PowerShell if curl is missing
-        set "CODE="
-        where curl.exe >nul 2>&1 && (
-            for /f "delims=" %%C in ('curl.exe -s -o nul -w "%%{http_code}" "http://127.0.0.1:%PORT%/" 2^>nul') do set "CODE=%%C"
-        )
-        if not defined CODE (
-            for /f "delims=" %%C in ('powershell -NoProfile -Command "try { (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:%PORT%/ -TimeoutSec 2).StatusCode } catch { 0 }"') do set "CODE=%%C"
-        )
+        set "CODE=000"
+        rem PowerShell is always present on modern Windows
+        for /f "delims=" %%C in ('powershell -NoProfile -Command "try{(Invoke-WebRequest -UseBasicParsing http://127.0.0.1:%PORT%/ -TimeoutSec 1).StatusCode}catch{'000'}"') do set "CODE=%%C"
         if "!CODE!"=="200" set "PRONTO=1"
     )
 )
-
 echo.
+echo.
+
 if not "!PRONTO!"=="1" (
-    echo [X] Server did not become ready in time.
+    echo [X] Server did not start in time.
     echo.
-    echo ----- server log ^(%LOG%^) -----
-    if exist "%LOG%" (
-        type "%LOG%"
-    ) else (
-        echo ^(log file missing — the server process may not have started^)
-    )
-    echo --------------------------------
+    echo ----- %LOG% -----
+    if exist "%LOG%" (type "%LOG%") else (echo Log file was not created.)
+    echo ------------------
     echo.
-    echo Tip: open Command Prompt and run:
+    echo Manual test:
     echo   cd /d "%BACKEND%"
     echo   "%PYEXE%" -m uvicorn server:app --host 127.0.0.1 --port %PORT%
     echo.
-    pause
-    exit /b 1
+    goto :end_fail
 )
 
-echo.
-echo   [OK] Ready at http://localhost:%PORT%
-echo.
-timeout /t 1 /nobreak >nul
+echo [OK] Ready at http://localhost:%PORT%
 start "" "http://localhost:%PORT%"
-
+echo.
 echo ------------------------------------------------------
 echo   Keep this window open during the experience.
 echo   Press any key to stop the server and exit.
@@ -152,8 +169,13 @@ echo ------------------------------------------------------
 echo.
 pause >nul
 
-for /f "tokens=5" %%P in ('netstat -ano 2^>nul ^| findstr /R /C:":%PORT% .*LISTENING"') do (
+for /f "tokens=5" %%P in ('netstat -ano 2^>nul ^| findstr ":%PORT%" ^| findstr "LISTENING"') do (
     taskkill /F /PID %%P >nul 2>&1
 )
-echo   Stopped.
-endlocal
+echo Stopped.
+goto :eof
+
+:end_fail
+echo.
+pause
+exit /b 1

@@ -21,7 +21,7 @@ Every session ends at **Q4 (calm)** — the *journey* is what differs:
 
 * **Q1 / Q2** — a smooth arousal *descent* (busy → sparse), following the
   iso-principle: meet the user's energy first, then wind down.
-* **Q3** — a gentle *lift then settle* (a plain descent from already-low
+* **Q3** — a gentle *settle* (a plain descent from already-low
   arousal has nowhere to go).
 * **Q4** — *sustain* and deepen a calm that's already there.
 
@@ -31,6 +31,8 @@ The pipeline, per session:
    for low valence, brighter for high) from `reference_catalog.json`.
 2. **Build an arousal schedule** — a per-bar `(rhythmic intensity, polyphony)`
    curve fed to MuseMorphose, which re-performs the reference at that density.
+   Render tempo is locked to a fixed 75 BPM regardless of the reference's
+   original tempo, so every session lands in the same calm tempo range.
 3. **Orchestrate** — split the single piano track into bass / harmony / melody,
    assign a per-emotion instrument palette, and dissolve the calm tail.
 4. **Render** to stereo `.wav` with a deep reverb tail and fade-out.
@@ -68,8 +70,10 @@ wget -O musemorphose_pretrained_weights.pt "https://zenodo.org/record/5119525/fi
 python3 build_catalog.py ./remi_dataset ./pickles/test_pieces.pkl reference_catalog.json
 ```
 
-`config/default.yaml` is tuned for this use case (`max_bars: 40`,
-`dec_seqlen: 3072`, `device: cpu`) — adjust `device` to `cuda` if you have a GPU.
+`config/default.yaml` is tuned for this use case (`generate.max_bars: 25`,
+`generate.dec_seqlen: 1280`, `device: cpu`) — adjust `device` to `cuda` if you
+have a GPU.
+
 
 ## Usage
 

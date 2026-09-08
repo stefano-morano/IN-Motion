@@ -1,6 +1,6 @@
 #!/bin/bash
 # Double-clickable launcher for IN-Motion (macOS).
-# Finder gives a minimal PATH — we must find a real Python with the deps.
+# Finder gives a minimal PATH — we must find a real Python, then install deps.
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 BACKEND="$DIR/web/backend"
@@ -18,7 +18,14 @@ echo ""
 echo "──────────────────────────────────────────────────────"
 echo ""
 
-# Prefer a Python that already has uvicorn (avoids the system 3.9 stub)
+# Prefer a usable Python 3.10+ (do not require deps yet — pip installs them).
+# Avoid the macOS /usr/bin/python3 stub when a fuller install exists.
+_python_ok() {
+    local py="$1"
+    [ -n "$py" ] && [ -x "$py" ] || return 1
+    "$py" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null
+}
+
 PYTHON=""
 for candidate in \
     /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 \
@@ -27,35 +34,32 @@ for candidate in \
     /opt/homebrew/bin/python3 \
     "$(command -v python3 2>/dev/null)"
 do
-    [ -n "$candidate" ] && [ -x "$candidate" ] || continue
-    if "$candidate" -c "import uvicorn" &>/dev/null; then
+    if _python_ok "$candidate"; then
         PYTHON="$candidate"
         break
     fi
 done
 
 if [ -z "$PYTHON" ]; then
-    echo -e "${ROSSO}✗ Python con le dipendenze di IN-Motion non trovato.${NC}"
-    echo "  Apri Terminale e lancia:"
-    echo "    cd \"$BACKEND\""
-    echo "    python3 -m pip install -r requirements.txt"
+    echo -e "${ROSSO}✗ Python 3.10+ not found.${NC}"
+    echo "  Install from https://www.python.org/downloads/ then run this again."
     echo ""
-    read -r -p "  Premi Invio per chiudere..."
+    read -r -p "  Press Enter to close..."
     exit 1
 fi
 echo -e "${VERDE}✓ $($PYTHON --version) ($PYTHON)${NC}"
 
-# Install missing deps if needed
-if ! "$PYTHON" -c "import fastapi, dotenv, anthropic" &>/dev/null; then
-    echo -e "${GIALLO}⚠ Installo dipendenze...${NC}"
+# Install / refresh deps from requirements.txt (includes uvicorn)
+if ! "$PYTHON" -c "import uvicorn, fastapi, dotenv, anthropic" &>/dev/null; then
+    echo -e "${GIALLO}⚠ Installing dependencies (first run may take a few minutes)...${NC}"
     "$PYTHON" -m pip install -r "$BACKEND/requirements.txt"
     if [ $? -ne 0 ]; then
-        echo -e "${ROSSO}✗ Installazione fallita${NC}"
-        read -r -p "Invio per chiudere..."
+        echo -e "${ROSSO}✗ Install failed${NC}"
+        read -r -p "Press Enter to close..."
         exit 1
     fi
 fi
-echo -e "${VERDE}✓ Dipendenze OK${NC}"
+echo -e "${VERDE}✓ Dependencies OK${NC}"
 
 # Load .env without breaking on special characters
 if [ -f "$DIR/.env" ]; then
@@ -63,26 +67,26 @@ if [ -f "$DIR/.env" ]; then
     # shellcheck disable=SC1091
     source "$DIR/.env"
     set +a
-    echo -e "${VERDE}✓ .env caricato${NC}"
+    echo -e "${VERDE}✓ .env loaded${NC}"
 fi
 
 # Free the port if occupied
 VECCHIO=$(lsof -ti :"$PORT" 2>/dev/null | tr '\n' ' ')
 if [ -n "$VECCHIO" ]; then
-    echo -e "${GIALLO}⚠ Fermo processo precedente sulla porta $PORT...${NC}"
+    echo -e "${GIALLO}⚠ Stopping previous process on port $PORT...${NC}"
     # shellcheck disable=SC2086
     kill -9 $VECCHIO 2>/dev/null
     sleep 0.5
 fi
 
 echo ""
-echo "  Avvio server..."
+echo "  Starting server..."
 cd "$BACKEND" || exit 1
 : > "$LOG"
 "$PYTHON" -m uvicorn server:app --host 0.0.0.0 --port "$PORT" >> "$LOG" 2>&1 &
 SRV=$!
 
-echo -n "  In attesa"
+echo -n "  Waiting"
 PRONTO=0
 for _ in $(seq 1 60); do
     sleep 0.5
@@ -94,40 +98,40 @@ for _ in $(seq 1 60); do
     fi
     if ! kill -0 "$SRV" 2>/dev/null; then
         echo ""
-        echo -e "${ROSSO}✗ Il server si è fermato. Errore:${NC}"
+        echo -e "${ROSSO}✗ Server stopped. Error:${NC}"
         echo ""
         cat "$LOG"
         echo ""
-        read -r -p "  Premi Invio per chiudere..."
+        read -r -p "  Press Enter to close..."
         exit 1
     fi
 done
 
 if [ "$PRONTO" -eq 0 ]; then
     echo ""
-    echo -e "${ROSSO}✗ Timeout. Errore:${NC}"
+    echo -e "${ROSSO}✗ Timeout. Error:${NC}"
     cat "$LOG"
     kill "$SRV" 2>/dev/null
-    read -r -p "  Premi Invio per chiudere..."
+    read -r -p "  Press Enter to close..."
     exit 1
 fi
 
 echo ""
 echo ""
-echo -e "${VERDE}  ✓ Pronto su http://localhost:$PORT${NC}"
+echo -e "${VERDE}  ✓ Ready at http://localhost:$PORT${NC}"
 echo ""
 sleep 0.3
 open "http://localhost:$PORT"
 
 echo "──────────────────────────────────────────────────────"
-echo "  Tieni questa finestra aperta durante l'esperienza."
-echo "  Premi Ctrl+C per fermare il server."
+echo "  Keep this window open during the experience."
+echo "  Press Ctrl+C to stop the server."
 echo "──────────────────────────────────────────────────────"
 echo ""
 
 cleanup() {
     echo ""
-    echo "  Arresto..."
+    echo "  Stopping..."
     kill "$SRV" 2>/dev/null
     wait "$SRV" 2>/dev/null
     exit 0

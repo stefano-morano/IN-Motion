@@ -4,7 +4,7 @@ chcp 65001 >nul
 title IN-Motion
 
 rem Double-clickable launcher for IN-Motion (Windows).
-rem Same role as "Lancia IN-Motion.command" on macOS.
+rem Finds Python 3.10+, installs requirements.txt if needed, then starts the server.
 
 set "DIR=%~dp0"
 if "%DIR:~-1%"=="\" set "DIR=%DIR:~0,-1%"
@@ -19,26 +19,24 @@ echo.
 echo ------------------------------------------------------
 echo.
 
-rem Find a Python that already has uvicorn
+rem Find any Python 3.10+ (deps come from requirements.txt on first run)
 where py >nul 2>&1 && (
-    py -3 -c "import uvicorn" >nul 2>&1 && set "PYTHON=py -3"
+    py -3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>&1 && set "PYTHON=py -3"
 )
 if not defined PYTHON (
     where python >nul 2>&1 && (
-        python -c "import uvicorn" >nul 2>&1 && set "PYTHON=python"
+        python -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>&1 && set "PYTHON=python"
     )
 )
 if not defined PYTHON (
     where python3 >nul 2>&1 && (
-        python3 -c "import uvicorn" >nul 2>&1 && set "PYTHON=python3"
+        python3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>&1 && set "PYTHON=python3"
     )
 )
 
 if not defined PYTHON (
-    echo [X] Python with IN-Motion dependencies not found.
-    echo     Open Command Prompt and run:
-    echo       cd "%BACKEND%"
-    echo       python -m pip install -r requirements.txt
+    echo [X] Python 3.10+ not found.
+    echo     Install from https://www.python.org/downloads/ then run this again.
     echo.
     pause
     exit /b 1
@@ -46,9 +44,9 @@ if not defined PYTHON (
 
 for /f "delims=" %%V in ('!PYTHON! --version 2^>^&1') do echo [OK] %%V  ^(!PYTHON!^)
 
-!PYTHON! -c "import fastapi, dotenv, anthropic" >nul 2>&1
+!PYTHON! -c "import uvicorn, fastapi, dotenv, anthropic" >nul 2>&1
 if errorlevel 1 (
-    echo [!] Installing dependencies...
+    echo [!] Installing dependencies ^(first run may take a few minutes^)...
     !PYTHON! -m pip install -r "%BACKEND%\requirements.txt"
     if errorlevel 1 (
         echo [X] Install failed.

@@ -17,6 +17,12 @@ echo ""
 echo "──────────────────────────────────────────────────────"
 echo ""
 
+_python_ok() {
+    local py="$1"
+    [ -n "$py" ] && [ -x "$py" ] || return 1
+    "$py" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null
+}
+
 PYTHON=""
 for candidate in \
     "$HOME/.local/bin/python3" \
@@ -25,26 +31,23 @@ for candidate in \
     "$(command -v python3 2>/dev/null)" \
     "$(command -v python 2>/dev/null)"
 do
-    [ -n "$candidate" ] && [ -x "$candidate" ] || continue
-    if "$candidate" -c "import uvicorn" &>/dev/null; then
+    if _python_ok "$candidate"; then
         PYTHON="$candidate"
         break
     fi
 done
 
 if [ -z "$PYTHON" ]; then
-    echo -e "${ROSSO}✗ Python with IN-Motion dependencies not found.${NC}"
-    echo "  In a terminal run:"
-    echo "    cd \"$BACKEND\""
-    echo "    python3 -m pip install -r requirements.txt"
+    echo -e "${ROSSO}✗ Python 3.10+ not found.${NC}"
+    echo "  Install Python 3.10+ then run this again."
     echo ""
     read -r -p "  Press Enter to close..."
     exit 1
 fi
 echo -e "${VERDE}✓ $($PYTHON --version) ($PYTHON)${NC}"
 
-if ! "$PYTHON" -c "import fastapi, dotenv, anthropic" &>/dev/null; then
-    echo -e "${GIALLO}⚠ Installing dependencies...${NC}"
+if ! "$PYTHON" -c "import uvicorn, fastapi, dotenv, anthropic" &>/dev/null; then
+    echo -e "${GIALLO}⚠ Installing dependencies (first run may take a few minutes)...${NC}"
     "$PYTHON" -m pip install -r "$BACKEND/requirements.txt"
     if [ $? -ne 0 ]; then
         echo -e "${ROSSO}✗ Install failed${NC}"

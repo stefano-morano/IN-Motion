@@ -42,6 +42,13 @@
     }
     #ui-step1.hidden { display: none; }
 
+    #ui-restart {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+    }
+    #ui-restart.hidden { display: none; }
+
     #ui-racconto {
       display: none;
       flex: 1;
@@ -1077,22 +1084,22 @@
     <div id="modal-box">
       <h2>HOW IT WORKS</h2>
       <ol>
-        <li>Click <strong>Start</strong> to begin the experience.</li>
-        <li>Follow the on-screen cues until you’re invited to <strong>close your eyes</strong> and speak freely.</li>
-        <li>As you speak, your words appear at the bottom; when you <strong>open your eyes</strong>, listening ends.</li>
-        <li>AI processes your story and prepares words, music, and visuals tailored to you.</li>
-        <li>When the final prompt appears, speak freely: your words show at the bottom. Click <strong>Done</strong> to finish and see the charts.</li>
+        <li>Click <strong>Start</strong>. You’ll be welcomed, then guided on screen and by voice.</li>
+        <li>When invited, <strong>close your eyes</strong> and speak freely about how you feel. Your words appear at the bottom; <strong>open your eyes</strong> when you’re done.</li>
+        <li>AI turns your story into personal words, music, and visuals. Follow the cues — including closing your eyes again for the silent meditation.</li>
+        <li>When asked, <strong>move your face</strong> to gently release the mandala.</li>
+        <li>After the final prompt, speak about how you feel now, then click <strong>Done</strong>.</li>
       </ol>
       <h2 style="margin-top:1.25rem; font-size:0.85rem; font-weight:600; color:rgba(255,255,255,0.7); letter-spacing:0.04em;">CONTROLS</h2>
       <ul style="padding-left:1.2rem; margin-top:0.5rem;">
         <li><strong>Profile</strong> — your name and sign out</li>
-        <li><strong>Calendar</strong> — history of your meditations</li>
-        <li><strong>Volume</strong> — adjust the music (double-click to mute)</li>
-        <li><strong>?</strong> — these instructions</li>
+        <li><strong>Calendar</strong> — history of past sessions and charts</li>
+        <li><strong>Volume</strong> — music level (double-click to mute)</li>
+        <li><strong>Info</strong> — these instructions</li>
       </ul>
       <p style="margin-top:1rem; color:rgba(255,255,255,0.45); font-size:0.78rem;">
-        For the best experience, use headphones and a quiet space.<br>
-        The webcam is only used to read facial expressions during the session: no video is recorded or saved.
+        For the best experience, use headphones and a quiet, well-lit space.<br>
+        The webcam reads eye open/close and facial expression for the charts only: no video is recorded or saved.
       </p>
       <button id="modal-close">Close</button>
     </div>
@@ -1101,6 +1108,9 @@
   <div id="ui" class="hidden">
     <div id="ui-step1">
       <button id="start" class="btn-pill" type="button">Start</button>
+    </div>
+    <div id="ui-restart" class="hidden">
+      <button id="btn-restart" class="btn-pill" type="button">Restart</button>
     </div>
   </div>
 
@@ -1154,13 +1164,7 @@
         <span id="results-text"></span>
       </div>
       <div class="btn-row">
-        <!-- High-res mandala download: same drawing as on screen,
-             redrawn with 260k particles. Backend writes the file at end
-             of meditation; this only fetches it. -->
-        <a class="panel-btn secondary" id="btn-mandala-download"
-           href="/mandala/ultimo" download>Your mandala</a>
         <button class="panel-btn secondary" id="btn-calendar-open">📅 History</button>
-        <button class="panel-btn secondary" id="btn-restart" type="button">Restart</button>
         <button class="panel-btn" id="btn-close-results">Continue →</button>
       </div>
     </div>

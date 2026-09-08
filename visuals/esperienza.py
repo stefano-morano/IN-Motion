@@ -368,7 +368,9 @@ class Esperienza:
         synchronously: those lines set the rhythm of the first minute, and a
         name-specific greeting is rarely already in cache.
         """
-        apertura = list(self.saluto) + list(INVITO)
+        # Speak the closing reflection prompt up front: it is the last guide
+        # line before the mic opens, and must not wait on the background queue.
+        apertura = list(self.saluto) + list(INVITO) + [INVITO_RIFLESSIONE]
         try:
             self.voce.prepara(apertura, silenzioso=True)
         except Exception as exc:
@@ -567,10 +569,10 @@ class Esperienza:
                     self._mostra_scena_corrente()
 
         elif self.stato == "invito_meditazione":
-            if stato_occhi == "aperti":
-                self._occhi_armati = True
-            pronto_occhi = self._occhi_armati and stato_occhi == "chiusi"
-            if pronto_occhi or trascorso >= MAX_ATTESA_GESTO:
+            # The cue is the last dance line itself, so many people already have
+            # their eyes closed when we enter this state. Do NOT require a fresh
+            # open→close here (that trapped the gesture and felt "stuck").
+            if stato_occhi == "chiusi" or trascorso >= MAX_ATTESA_GESTO:
                 self._vai("meditazione", ora)
                 self.scena.mostra("volto", transizione=TRANSIZIONE)
                 # il colore sale insieme alla musica dell'emozione: sono la
@@ -627,22 +629,30 @@ class Esperienza:
             if self.movimento.abbastanza() or trascorso >= MAX_DISSOLUZIONE:
                 print(f"  disperso (energia del gesto: {self.movimento.energia:.1f})")
                 if self.sincronia is not None:
-                    self._vai("riflessione_ascolto", ora)
+                    # Speak the reflection prompt first; opening the mic in the
+                    # same frame used to cancel the scheduled TTS clip.
+                    self._vai("riflessione_invito", ora)
                     self._mostra_blocco([INVITO_RIFLESSIONE], 0, ora,
                                         transizione=TRANSIZIONE)
-                    self.voce.zittisci()
-                    self._voce_da_dire = None
                     ui_apri = getattr(self.scena, "ui_riflessione_apri", None)
                     if ui_apri:
                         ui_apri()
-                    if self.ascolto:
-                        self.ascolto.apri()
-                        self.ascolto.inizia()
                 else:
                     self._vai("commiato", ora)
                     self._mostra_blocco(COMMIATO, 0, ora,
                                         transizione=TRANSIZIONE_LUNGA,
                                         permanenza=PERMANENZA_COMMIATO)
+
+        elif self.stato == "riflessione_invito":
+            # Wait until the prompt has been shown/spoken, then open the mic.
+            # Do not zittisci here: cutting the clip early made guide + mic overlap
+            # when the browser was still finishing playback.
+            if ora - self._t_blocco >= self._durata_blocco:
+                self._voce_da_dire = None
+                self._vai("riflessione_ascolto", ora)
+                if self.ascolto:
+                    self.ascolto.apri()
+                    self.ascolto.inizia()
 
         elif self.stato == "riflessione_ascolto":
             # Sul web: Fine (o timeout) imposta riflessione_inviata.
@@ -667,6 +677,12 @@ class Esperienza:
                 ui_nascondi = getattr(self.scena, "ui_nascondi", None)
                 if ui_nascondi:
                     ui_nascondi()
+                # Farewell clips are rarely needed mid-session: make sure they
+                # exist before showing, otherwise the closing lines stay mute.
+                try:
+                    self.voce.prepara(COMMIATO, silenzioso=True)
+                except Exception as exc:
+                    print(f"voce: commiato non preparato ({exc})")
                 self._vai("commiato", ora)
                 self._mostra_blocco(COMMIATO, 0, ora,
                                     transizione=TRANSIZIONE_LUNGA,
@@ -708,8 +724,10 @@ class Esperienza:
     def _vai(self, stato, ora):
         self.stato = stato
         self.t_stato = ora
-        # Phases that wait for a deliberate eye-close need a fresh open→close.
-        if stato in ("invito", "invito_meditazione", "riflessione_invito"):
+        # Phases that wait for a deliberate eye-close after looking at the UI
+        # (first story invite) need a fresh open→close. Meditation invite does
+        # not: the cue is on the previous screen and eyes are often already shut.
+        if stato == "invito":
             self._occhi_armati = False
 
     def imposta_racconto(self, racconto: str):

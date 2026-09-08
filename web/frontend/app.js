@@ -513,6 +513,21 @@ function _hideEndReflectionBtn() {
     el.classList.add('hidden');
 }
 
+/** Resolve when the guide clip is no longer playing (or after a short timeout). */
+function _waitForGuideVoice(maxMs = 20000) {
+    const t0 = performance.now();
+    return new Promise(resolve => {
+        const tick = () => {
+            if (!audio._voceInCorso || performance.now() - t0 > maxMs) {
+                resolve();
+                return;
+            }
+            setTimeout(tick, 80);
+        };
+        tick();
+    });
+}
+
 function _openInExperienceReflection() {
     if (_inReflection) return;
     _inReflection = true;
@@ -642,6 +657,8 @@ function connect() {
                 await audio.openMic();
             } else if (msg.azione === 'inizia' || msg.azione === 'start') {
                 if (!_inReflection) _listenReason = 'racconto';
+                // Wait until ElevenLabs finishes so guide + mic don't overlap
+                await _waitForGuideVoice();
                 await _beginListening();
             } else if (msg.azione === 'ferma' || msg.azione === 'stop') {
                 const motivo = _listenReason || 'racconto';
@@ -668,8 +685,9 @@ function connect() {
 
         } else if (tipo === 'ui') {
             if (msg.fase === 'riflessione' && msg.azione === 'apri') {
+                // Only open the Done UI — mic starts later on ascolto/inizia,
+                // after the guide finishes speaking.
                 _openInExperienceReflection();
-                await _beginListening();
             } else if (msg.fase === 'nascondi') {
                 _hideExperienceOverlay();
             }
@@ -991,10 +1009,17 @@ const uiStep1 = document.getElementById('ui-step1');
 
 function _resetEntryUi() {
     uiStep1?.classList.remove('hidden');
+    document.getElementById('ui-restart')?.classList.add('hidden');
     _hideEndReflectionBtn();
     document.getElementById('session-text')?.classList.remove('visible');
     const testoEl = document.getElementById('session-text-body');
     if (testoEl) testoEl.textContent = '';
+}
+
+function _showRestartUi() {
+    ui.classList.remove('hidden');
+    uiStep1?.classList.add('hidden');
+    document.getElementById('ui-restart')?.classList.remove('hidden');
 }
 
 document.getElementById('start').addEventListener('click', async () => {
@@ -1020,6 +1045,8 @@ async function _beginExperience() {
     _analyzerPost = null;
     _analyzer.start();
     ui.classList.add('hidden');
+    document.getElementById('ui-restart')?.classList.add('hidden');
+    uiStep1?.classList.remove('hidden');
     document.getElementById('session-text')?.classList.remove('visible');
     const testoEl = document.getElementById('session-text-body');
     if (testoEl) testoEl.textContent = '';
@@ -1661,11 +1688,13 @@ function _renderCalendarCharts(sessioni) {
 
 document.getElementById('btn-close-results').addEventListener('click', () => {
     document.getElementById('panel-results').classList.remove('visible');
+    _showRestartUi();
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ tipo: 'risultati_visti' }));
     }
 });
 document.getElementById('btn-restart')?.addEventListener('click', () => {
+    document.getElementById('ui-restart')?.classList.add('hidden');
     _restartFromStart();
 });
 document.getElementById('btn-calendar-open').addEventListener('click', () => {

@@ -120,7 +120,7 @@ rem Write a tiny runner so quoting stays simple
 (
     echo @echo off
     echo cd /d "%BACKEND%"
-    echo "%PYEXE%" -m uvicorn server:app --host 127.0.0.1 --port %PORT%
+    echo "%PYEXE%" -m uvicorn "server:app" --host 127.0.0.1 --port %PORT%
 ) > "%RUNBAT%"
 
 echo Starting server...
@@ -154,7 +154,7 @@ if not "!PRONTO!"=="1" (
     echo.
     echo Manual test:
     echo   cd /d "%BACKEND%"
-    echo   "%PYEXE%" -m uvicorn server:app --host 127.0.0.1 --port %PORT%
+    echo   "%PYEXE%" -m uvicorn "server:app" --host 127.0.0.1 --port %PORT%
     echo.
     goto :end_fail
 )

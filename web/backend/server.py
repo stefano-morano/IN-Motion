@@ -8,7 +8,7 @@ runs here and commands are sent back to the browser.
 Start:
     cd web/backend
     pip install -r requirements.txt
-    uvicorn server:app --reload
+    uvicorn "server:app" --reload
 """
 import asyncio
 import json
@@ -75,9 +75,18 @@ _voce_stub = types.ModuleType("voce")
 _voce_stub.Voce = VoceWS
 sys.modules["voce"] = _voce_stub
 
+# esperienza.py does `import scena` at top level; that module talks to
+# TouchDesigner via python-osc. On the web we never need OSC — stub scena
+# with ScenaWS before importing esperienza so Windows/macOS/Linux web installs
+# do not require pythonosc.
+from scena_ws import ScenaWS                         # noqa: E402
+_scena_stub = types.ModuleType("scena")
+_scena_stub.Scena = ScenaWS
+_scena_stub.TEMPO_DI_PREPARAZIONE = ScenaWS.TEMPO_DI_PREPARAZIONE
+sys.modules["scena"] = _scena_stub
+
 import esperienza as _exp_mod  # noqa: E402
 
-from scena_ws import ScenaWS      # noqa: E402
 from ascolto_ws import AscoltoWS  # noqa: E402
 
 # ------------------------------------------------------------------ app

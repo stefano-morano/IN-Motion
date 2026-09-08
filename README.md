@@ -57,13 +57,19 @@ Use the launcher for your OS (double-click or run from a terminal):
 
 Or start the server manually:
 
+**macOS / Linux**
 ```bash
 cd /path/to/IN-Motion/web/backend
 python3 -m pip install -r requirements.txt   # first time only
 python3 -m uvicorn server:app --host 0.0.0.0 --port 8080
 ```
 
-On Windows you can use `python` instead of `python3` if that is how Python is installed.
+**Windows** (Command Prompt or PowerShell — quote `server:app`, otherwise PowerShell treats it as a drive path and uvicorn reports `Missing argument 'APP'`)
+```bat
+cd /d C:\path\to\IN-Motion\web\backend
+python -m pip install -r requirements.txt
+python -m uvicorn "server:app" --host 127.0.0.1 --port 8080
+```
 
 Then open **http://localhost:8080**.
 

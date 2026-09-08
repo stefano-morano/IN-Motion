@@ -4,91 +4,91 @@
   <img src="web/assets/logo%20white.png" alt="IN-Motion" width="280">
 </p>
 
-Esperienza interattiva di meditazione guidata con intelligenza artificiale, visualizzazioni a particelle e riconoscimento facciale e vocale.
+Interactive guided meditation experience with AI, particle visuals, and facial and voice recognition.
 
 <p align="center">
-  <img src="web/assets/simbols/Screenshot.png" alt="Screenshot IN-Motion" width="720">
+  <img src="web/assets/simbols/Screenshot.png" alt="IN-Motion screenshot" width="720">
 </p>
 
 ---
 
-## Requisiti
+## Requirements
 
-- **macOS** 10.14 o superiore (consigliato)
+- **macOS** 10.14 or later (recommended)
 - **Python 3.10+** — [python.org/downloads](https://python.org/downloads)
-- Connessione internet (prima installazione e API cloud)
-- Chiave **Anthropic** — [console.anthropic.com](https://console.anthropic.com)
-- Chiave **ElevenLabs** (voce) — [elevenlabs.io](https://elevenlabs.io)  
-  Opzionale: **Firebase** per login e storico sessioni
+- Internet connection (first install and cloud APIs)
+- **Anthropic** API key — [console.anthropic.com](https://console.anthropic.com)
+- **ElevenLabs** API key (voice) — [elevenlabs.io](https://elevenlabs.io)  
+  Optional: **Firebase** for login and session history
 
 ---
 
-## Installazione e avvio
+## Setup and launch
 
-### 1. Configura le chiavi
+### 1. Configure keys
 
-Nella cartella principale, file `.env`:
+In the project root, edit `.env`:
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 ELEVENLABS_API_KEY=sk_...
 ```
 
-(Opzionale: variabili `FIREBASE_*` da console Firebase.)
+(Optional: `FIREBASE_*` variables from the Firebase console.)
 
-### 2. Avvia
+### 2. Start
 
-**Doppio clic** su `Lancia IN-Motion.command`  
-oppure da Terminale:
+**Double-click** `Lancia IN-Motion.command`  
+or from Terminal:
 
 ```bash
-cd /percorso/IN-Motion/web/backend
-python3 -m pip install -r requirements.txt   # solo la prima volta
+cd /path/to/IN-Motion/web/backend
+python3 -m pip install -r requirements.txt   # first time only
 python3 -m uvicorn server:app --host 0.0.0.0 --port 8080
 ```
 
-Poi apri **http://localhost:8080**.
+Then open **http://localhost:8080**.
 
-La prima volta scarica dipendenze e il modello Whisper (~500 MB).  
-Ferma il server con **Ctrl+C**.
+The first run downloads dependencies and the Whisper model (~500 MB).  
+Stop the server with **Ctrl+C**.
 
-> Se macOS blocca il `.command`: **Impostazioni di Sistema → Privacy e sicurezza → Apri comunque**.
-
----
-
-## Come si usa
-
-1. Accedi (se Firebase è configurato) e completa il profilo
-2. Clicca **Start** e segui le istruzioni a schermo
-3. Chiudi gli occhi e racconta a voce ciò che porti; l’esperienza guida voce, musica e particelle (~10–15 min)
-4. A fine sessione: riflessione, grafici emotivi e storico
-
-> Cuffie e spazio tranquillo; concedi microfono e webcam al browser. La webcam non registra video.
+> If macOS blocks the `.command` file: **System Settings → Privacy & Security → Open Anyway**.
 
 ---
 
-## API e strumenti
+## How to use
 
-| Componente | Ruolo |
+1. Sign in (if Firebase is configured) and complete your profile
+2. Click **Start** and follow the on-screen guidance
+3. Close your eyes and speak about what you carry; the experience guides you with voice, music, and particles (~10–15 min)
+4. After the session: reflection, emotion charts, and history
+
+> Use headphones in a quiet space; allow microphone and webcam in the browser. The webcam does not record video.
+
+---
+
+## APIs and tools
+
+| Component | Role |
 |---|---|
-| **Anthropic Claude** | Genera frasi, mandala (petali/colore) e quadrante emotivo Q1–Q4 dal racconto; analisi emotiva post-sessione |
-| **ElevenLabs** | Sintesi vocale della guida |
-| **faster-whisper** | Trascrizione del racconto / riflessione (locale) |
-| **MediaPipe Face Landmarker** | 478 landmark + 52 blend shapes; mesh del volto a particelle e stima valenza/arousal |
-| **Three.js** | Rendering WebGL delle particelle (blending additivo, bloom) |
-| **Firebase** (opz.) | Auth e salvataggio sessioni / calendario |
-| **FastAPI + Uvicorn** | Backend e WebSocket verso il browser |
+| **Anthropic Claude** | Generates phrases, mandala (petals/color), and emotion quadrant Q1–Q4 from the story; post-session emotion analysis |
+| **ElevenLabs** | Guide voice synthesis |
+| **faster-whisper** | Transcription of story / reflection (local) |
+| **MediaPipe Face Landmarker** | 478 landmarks + 52 blend shapes; particle face mesh and valence/arousal estimate |
+| **Three.js** | WebGL particle rendering (additive blending, bloom) |
+| **Firebase** (optional) | Auth and session / calendar storage |
+| **FastAPI + Uvicorn** | Backend and WebSocket to the browser |
 
-Stack di supporto: **NumPy**, **Pillow**, libreria musicale WAV in `visuals/musica_libreria/`.
+Supporting stack: **NumPy**, **Pillow**, WAV music library in `visuals/musica_libreria/`.
 
 ---
 
-## Risoluzione problemi
+## Troubleshooting
 
-| Problema | Soluzione |
+| Issue | Fix |
 |---|---|
-| "Python 3 non trovato" | Installa da [python.org/downloads](https://python.org/downloads) |
-| Il browser non si apre | Apri manualmente `http://localhost:8080` |
-| Nessuna musica | Verifica `visuals/musica_libreria/` con i file WAV |
-| Microfono / webcam | Concedi l’accesso nel browser |
-| Errore API Anthropic / ElevenLabs | Controlla le chiavi nel `.env` |
+| "Python 3 not found" | Install from [python.org/downloads](https://python.org/downloads) |
+| Browser does not open | Open `http://localhost:8080` manually |
+| No music | Check `visuals/musica_libreria/` for WAV files |
+| Microphone / webcam | Allow access in the browser |
+| Anthropic / ElevenLabs API error | Check keys in `.env` |

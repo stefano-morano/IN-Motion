@@ -125,6 +125,6 @@ Supporting stack: **NumPy**, **Pillow**, WAV music library in `visuals/musica_li
 ## Collaborators
 
 - Aldo Pinelli
-- Hamin Jand
+- Hamin Jang
 - Stefano Morano
 - Alessandro Cupini

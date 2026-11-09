@@ -3,7 +3,7 @@
 The music half of **IN-Motion**, a guided meditation experience. Given the
 user's start emotion, this engine generates a piano piece that *begins* in that
 emotional state and *develops toward calm*, arranges it for a small ensemble,
-and renders it to audio. The visual half (TouchDesigner particles) lives in the
+and renders it to audio. The visual half lives in the
 sibling `visuals/` folder and plays the audio this engine produces.
 
 Built on **MuseMorphose** (Wu & Yang, TASLP 2022) — a Transformer-VAE for
@@ -12,6 +12,14 @@ everything emotional is a thin control layer around it (reference selection +
 a per-bar attribute schedule + post-hoc orchestration). See the original work
 and citation at the bottom.
 
+
+## Listen
+Music generated from the detected emotion, easing toward calm (iso principle):
+
+- [Q1 → calm](https://drive.google.com/file/d/1wWks-HTkt4_6k5hz9W5ChsbKnpE9FfHs/view?usp=share_link) (high energy, bright start)
+- [Q2 → calm](https://drive.google.com/file/d/1-Bybp7EUNTro98hXRpNvKeTNGTm-HUNY/view?usp=share_link) (high energy, dark start)
+
+
 ## What it does
 
 The start emotion is one of the four Russell valence/arousal quadrants:
@@ -19,11 +27,11 @@ The start emotion is one of the four Russell valence/arousal quadrants:
 
 Every session ends at **Q4 (calm)** — the *journey* is what differs:
 
-* **Q1 / Q2** — a smooth arousal *descent* (busy → sparse), following the
+* **Q1 / Q2 (happy/tense)** — a smooth arousal *descent* (busy → sparse), following the
   iso-principle: meet the user's energy first, then wind down.
-* **Q3** — a gentle *settle* (a plain descent from already-low
+* **Q3 (sad)** — a gentle *settle* (a plain descent from already-low
   arousal has nowhere to go).
-* **Q4** — *sustain* and deepen a calm that's already there.
+* **Q4 (calm)** — *sustain* and deepen a calm that's already there.
 
 The pipeline, per session:
 
